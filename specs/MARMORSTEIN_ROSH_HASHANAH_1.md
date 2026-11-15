@@ -1168,3 +1168,51 @@ place a real boundary before a source rubric; a heading must not duplicate it.
 Human-confirmed source cantillation is retained, including the likely erroneous
 zarqa over peh in פניך; do not invent its correction. Draft structural review and
 source reading acceptance remain separate; accepted leaves stay 100/355.
+
+### Musaf installment, physical scans 200–223
+
+The next 24 leaves supply the complete quiet Musaf Amidah and the opening
+repetition through Avot, including *Uppad meaz*. They add 41 modules and 81
+language witnesses. Source acceptance stays separate: 224 leaves have independent
+image readings, while 100/355 leaves are accepted. Fine marks and uncertain source
+labels remain draft; resolved human readings do not accept a whole page.
+
+The Frankfurt-and-affiliated-communities direction on printed p. 93 selects the
+left offering formula exclusively, through the existing `frankfurt_am_main`
+setting. Its incipit context is `offering_formula/useir_lekhapper`; the default
+formula is `offering_formula/ushenei_seirim`. The shared preamble remains common.
+The English prints only the default formula, so the Frankfurt branch has no
+invented translation. Sabbath offerings and Yismechu preserve their printed
+parentheses as marked conditions; resolved weekday/Shabbat selections remove the
+markers. Quiet and repetition recitation declarations are local, as is Musaf's
+service-time declaration, so morning selection continues through Musaf.
+
+The human-confirmed piyyut opening is `אֻפָּד מֵאָז לְשֶׁפֶט הַיּוֹם`; the provisional,
+unpublished identity was corrected to `poem:uppad_meaz`. Six shared stanza
+milestones preserve the two printed paragraphs independently of alignment.
+`בְּמָשְׁכָם` and `בְּזָכְרָם` are exclusive weekday/Shabbat readings. The reader's
+`ח׳` label stands before both alternatives. Ark actions travel with their native
+Hebrew modules; no unprinted English direction is supplied.
+
+Source alternatives retain their sigla in apparatus notes at the exact choice.
+Misod preserves `ממ״ה` with the human-confirmed expansion `מלך מלכי המלכים` inside
+its selected option. The importer therefore permits abbreviation metadata within
+an alternative reading and an optional choice `xml_id`; both enter review hashes.
+Whole-unit marked conditions also enter the review payload. These capabilities
+are covered by importer tests, in addition to actual compiled selection checks.
+
+Exodus “וכל העם רואים” uses the common canonical numbering, 20:18. The opening
+of Zechariah 9:15 is bounded by `adonai_tzevaot_yagen` and the following `veakhelu`
+verse part, placed in both WLC and Miqra al pi ha-Masorah without changing any
+Scripture characters. The following liturgical petition is outside the quotation.
+Original English misprints retain `sic/corr`; absent translation remains absent.
+
+Validation covers all 646 book XML files, two supporting Zechariah files, naming,
+features, registry and reference resolution, 162 actual compiled occurrence and
+language comparisons, eight weekday/Shabbat × Frankfurt × minyan selections,
+and 106 exact bounded Scripture quotations. Every new physical leaf has one
+source XML `pb/@facs`. Parallel collation retains 21 of those 24 markers; the
+leading markers for Hebrew s204, English s205 and English s223 remain a separate
+compiler follow-up, with source XML and module facsimile provenance intact.
+The next installment begins on physical scan 224 with the Musaf repetition's
+Gevurot and piyyutim. The repetition and full volume are not yet complete.

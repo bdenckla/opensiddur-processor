@@ -1281,6 +1281,40 @@ class EditionWiringTest(unittest.TestCase):
         self.assertEqual(len(div.findall('.//'+T+'pb')), 2)  # one per actual scan
         self.assertIn('source page starts', unit_review_text(unit, 'he'))
 
+    def test_variant_retains_printed_abbreviation_and_exact_note_anchor(self):
+        unit = self.readings['units'][0]
+        fragment = unit['languages']['he'][0]['fragments'][0]
+        fragment.update(text='ראש מלך (נ״א ממ״ה) סוף', alternatives=[{
+            'printed': 'מלך (נ״א ממ״ה)', 'xml_id': 'address_variant',
+            'readings': ['מלך', {'text': 'ממ״ה', 'abbreviations': [
+                {'abbr': 'ממ״ה', 'expan': 'מלך מלכי המלכים'}]}]}])
+        self.save('readings', self.readings)
+        self.generate(draft=True)
+        root = etree.parse(str(self.projects/PROJECTS['he']/'first.xml'))
+        choice = root.xpath('//*[@xml:id="address_variant"]')[0]
+        option = choice.findall(J+'option')[1]
+        self.assertEqual(option.find(T+'choice/'+T+'abbr').text, 'ממ״ה')
+        self.assertEqual(option.find(T+'choice/'+T+'expan').text, 'מלך מלכי המלכים')
+        baseline = unit_review_text(unit, 'he')
+        fragment['alternatives'][0]['readings'][1]['abbreviations'][0]['expan'] = 'מלך'
+        self.assertNotEqual(baseline, unit_review_text(unit, 'he'))
+
+    def test_parenthesized_whole_unit_preserves_conditional_delimiters(self):
+        unit = self.readings['units'][0]
+        unit['conditions'] = [{'type': 'opensiddur:holiday-aggregate',
+                               'features': {'shabbat': True}}]
+        baseline = unit_review_text(unit, 'he')
+        unit['marked'] = True
+        self.save('readings', self.readings)
+        self.generate(draft=True)
+        root = etree.parse(str(self.projects/PROJECTS['he']/'first.xml'))
+        self.assertEqual(root.find('.//'+J+'conditional').get('type'), 'marked')
+        self.assertNotEqual(baseline, unit_review_text(unit, 'he'))
+        unit.pop('conditions')
+        self.save('readings', self.readings)
+        with self.assertRaisesRegex(ValueError, 'requires a condition'):
+            self.generate(draft=True)
+
     def test_qere_ketiv_preserves_printed_form_and_invalidates_review(self):
         unit = self.readings['units'][0]
         unit['languages']['he'] = unit['languages']['he'][:1]

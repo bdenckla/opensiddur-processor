@@ -23380,3 +23380,8 @@
 {"urn": "urn:x-opensiddur:text:prayer:el_melekh_neeman_shaddai/quotations", "status": "context", "parent": "urn:x-opensiddur:text:prayer:el_melekh_neeman_shaddai", "note": "Grouping for exact quotation occurrence boundaries."}
 {"urn": "urn:x-opensiddur:text:prayer:harei_ani_mukhan_litqoa/quotations", "status": "context", "parent": "urn:x-opensiddur:text:prayer:harei_ani_mukhan_litqoa", "note": "Grouping for exact quotation occurrence boundaries."}
 {"urn": "urn:x-opensiddur:text:prayer:ribbon_haolamim_banekha/quotations", "status": "context", "parent": "urn:x-opensiddur:text:prayer:ribbon_haolamim_banekha", "note": "Grouping for exact quotation occurrence boundaries."}
+{"urn": "urn:x-opensiddur:text:prayer:amidah/attah_zokher_maaseh_olam", "status": "canonical", "label_en": "amidah/attah zokher maaseh olam", "parent": "urn:x-opensiddur:text:prayer:amidah"}
+{"urn": "urn:x-opensiddur:text:prayer:amidah/eloheinu_zokhrenu_bezikhron_tov", "status": "canonical", "label_en": "amidah/eloheinu zokhrenu bezikhron tov", "parent": "urn:x-opensiddur:text:prayer:amidah"}
+{"urn": "urn:x-opensiddur:text:prayer:amidah/attah_nigleita", "status": "canonical", "label_en": "amidah/attah nigleita", "parent": "urn:x-opensiddur:text:prayer:amidah"}
+{"urn": "urn:x-opensiddur:text:prayer:amidah/teqa_beshofar_gadol_lecherutenu", "status": "canonical", "label_en": "amidah/teqa beshofar gadol lecherutenu", "parent": "urn:x-opensiddur:text:prayer:amidah"}
+{"urn": "urn:x-opensiddur:text:prayer:amidah/shomea_qol_teruat_ammo", "status": "canonical", "label_en": "amidah/shomea qol teruat ammo", "parent": "urn:x-opensiddur:text:prayer:amidah"}

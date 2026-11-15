@@ -92,6 +92,12 @@ class Unplaceable:
 #: passage that stops in the middle of a verse needs a part declared at the point the
 #: *remainder* begins as well: `lo_yenakeh` exists to end `venakeh`.
 VERSE_PARTS: dict[tuple[str, int, int], tuple[tuple[str, dict[str, str]], ...]] = {
+    # Musaf quotes only the opening promise of protection, before the
+    # prophet continues with eating and subduing the sling-stones.
+    ("zechariah", 9, 15): (
+        ("adonai_tzevaot_yagen", {"he": "יהוה צבאות יגן עליהם"}),
+        ("veakhelu", {"he": "ואכלו"}),
+    ),
     # The cantor's prayer quotes the growing shofar sound, stopping before
     # "exceedingly" and the account of Moses speaking.
     ("exodus", 19, 19): (

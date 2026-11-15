@@ -521,6 +521,15 @@ class TestDeclaredVerseParts(SubverseTestCase):
                          "וַיְהִי קוֹל הַשֹּׁפָר הוֹלֵךְ וְחָזֵק")
         self.assertEqual("".join(etree.fromstring(result.encode()).itertext()), text)
 
+    def test_musaf_protection_quote_stops_before_prophetic_continuation(self):
+        xml = document('<tei:p>' + verse(f"{URN}zechariah/9/15", "15") +
+                       'יְהוָה צְבָאוֹת יָגֵן עֲלֵיהֶם וְאָכְלוּ וְכָבְשׁוּ אַבְנֵי קֶלַע</tei:p>')
+        result = self.verse_parts(xml)
+        self.assertEqual(self.scope(result, f"{URN}zechariah/9/15/adonai_tzevaot_yagen"),
+                         'יְהוָה צְבָאוֹת יָגֵן עֲלֵיהֶם')
+        self.assertEqual(self.scope(result, f"{URN}zechariah/9/15/veakhelu"),
+                         'וְאָכְלוּ וְכָבְשׁוּ אַבְנֵי קֶלַע')
+
     def test_no_declared_part_name_contains_a_dash(self):
         """A dash in the last component of a URN is what marks a range."""
         for key, parts in VERSE_PARTS.items():

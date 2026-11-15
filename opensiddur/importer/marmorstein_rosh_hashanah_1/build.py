@@ -182,8 +182,10 @@ def unit_document(unit, lang, draft):
         element(element(div, 'p'), 'j:transclude', type='inline', target=reuse+'@'+project)
         return root
     conditions = unit.get('conditions', [])
+    if unit.get('marked') and not conditions:
+        raise ValueError('Marked source unit requires a condition')
     if conditions:
-        conditional = element(div, 'j:conditional')
+        conditional = element(div, 'j:conditional', **({'type': 'marked'} if unit.get('marked') else {}))
         conditional.set(XML+'id', unit['stem']+'_condition')
         feature_structures(element(conditional, 'j:all'), conditions)
     current_page = None
@@ -465,8 +467,14 @@ def unit_document(unit, lang, draft):
                     before, text = text.split(printed, 1)
                     words(content, before, text_language)
                     choice = element(content, 'choice')
+                    if alternative.get('xml_id'):
+                        choice.set(XML+'id', alternative['xml_id'])
                     for reading in readings:
-                        words(element(choice, 'j:option'), reading, text_language)
+                        option = element(choice, 'j:option')
+                        if isinstance(reading, dict):
+                            rubric_words(option, reading, text_language)
+                        else:
+                            words(option, reading, text_language)
                 words(content, text, text_language)
             elif fragment.get('qere_ketiv'):
                 if any(fragment.get(key) for key in ('expansion', 'abbreviations',
@@ -548,6 +556,8 @@ def unit_review_text(unit, lang):
     parts = ([unit['head'][lang]] if unit.get('head', {}).get(lang) else [])
     if unit.get('opening_page', {}).get(lang):
         parts.append('[source page starts before opening rubric]')
+    if unit.get('marked'):
+        parts.append('[source condition is parenthesized]')
     parts.extend(instruction['text'] for instruction in unit_instructions(unit, lang))
     for instruction in unit_instructions(unit, lang):
         parts.extend(a['abbr']+' ['+a['expan']+']' for a in instruction.get('abbreviations', []))
@@ -580,7 +590,9 @@ def unit_review_text(unit, lang):
             parts.extend('[written '+reading['written']+'; read '+reading['read']+']'
                          for reading in fragment.get('qere_ketiv', []))
             parts.extend('[printed '+alternative['printed']+'; alternatives '+
-                         ' | '.join(alternative['readings'])+']'
+                         ' | '.join(instruction_review_text(reading) if isinstance(reading, dict)
+                                    else reading for reading in alternative['readings'])+
+                         ('; anchor '+alternative['xml_id'] if alternative.get('xml_id') else '')+']'
                          for alternative in fragment.get('alternatives', []))
             parts.extend(a['abbr']+' ['+a['expan']+']' for a in fragment.get('abbreviations', []))
             parts.extend(item['word']+' [uncertain '+item['character']+'; cert=low]'
