@@ -1236,8 +1236,8 @@ All displayed human questions through 70 have resolutions. Crops 60–62 and
 71–73 were used for primary adjudication. The final non-Torah source/guideline
 audit, enlarged-crop review, and human adjudications 74–77 close all 41 Hebrew
 witnesses and 40 English witnesses. The source review for s200–s223 has no
-unresolved reading. The final rendered export checks remain open; accepted
-source leaves do not imply final PDF acceptance.
+unresolved reading. Representative rendered export checks now pass; the
+remaining volume and older review backlog are still incomplete.
 
 Editorial reconstruction uses `tei:seg type="supplied" subtype="scholars"`,
 with its basis in a note. The scan s217 words “of our” use this encoding; the
@@ -1249,7 +1249,13 @@ exports verify the undecided delimiters. The repetition heading already belongs
 to the documentary spine; a temporary duplicate module heading was removed.
 Refreshed checks pass 162 compiled occurrence/language comparisons, 106 bounded
 quotations, eight Shabbat/rite/minyan selections, feature/name/URN validation,
-and both HTML exports' internal links and popover targets. These checks precede
-the final three Umippenei metegs and must be refreshed after the four remaining
-source decisions. All 24 unique source page markers survive in documentary XML;
-the existing parallel-compiler limitation still drops three in compiled output.
+and both HTML exports' internal links and popover targets. These checks were
+refreshed after the final source decisions. The documentary/expanded PDF previews
+have 172/191 pages, settle in three LaTeX passes each, and have no unresolved
+printed references; all 30 documentary internal links resolve. Representative
+Musaf pages were visually checked for bilingual alignment, source points,
+conditional layout, headings and apparatus placement. Rendering uses separate
+exporter PR301 and the recorded temporary rubric keep-with-next preview patch;
+the renderer worktree is restored afterward. These remain draft previews.
+All 24 unique source page markers survive in documentary XML; the existing
+parallel-compiler limitation still drops three in compiled output.
