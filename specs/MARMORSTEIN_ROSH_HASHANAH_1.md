@@ -1216,3 +1216,40 @@ leading markers for Hebrew s204, English s205 and English s223 remain a separate
 compiler follow-up, with source XML and module facsimile provenance intact.
 The next installment begins on physical scan 224 with the Musaf repetition's
 Gevurot and piyyutim. The repetition and full volume are not yet complete.
+
+Post-review visual QA distinguishes encoded alternatives from a resolved reading:
+external exports show unresolved `j:option` forms with the later forms parenthesized;
+inline transclusion takes the first. The 162 word comparisons explicitly compare
+first readings and do not assert that the external renderer selects only one.
+Exact-choice apparatus notes retain the source siglum without repeating the
+alternative words already displayed beside the main reading. Documentary Musaf
+has a structural service heading so its running header does not retain the preceding
+cantor-prayer heading. The seven Torah quotations on s212–s218 now have
+image-adjudicated cantillation; the raw candidate ledger includes historical/resolved items and is
+not a count of unresolved readings.
+
+The source-review closure now accepts all 12 English leaves in s200–s223 and
+all 12 Hebrew leaves: all 24 of this installment's leaves, and 124 of 355 overall.
+The accepted witnesses bind their exact current reading payloads to the initial
+blind page readings, subsequent independent image audits, and adjudication records.
+All displayed human questions through 70 have resolutions. Crops 60–62 and
+71–73 were used for primary adjudication. The final non-Torah source/guideline
+audit, enlarged-crop review, and human adjudications 74–77 close all 41 Hebrew
+witnesses and 40 English witnesses. The source review for s200–s223 has no
+unresolved reading. The final rendered export checks remain open; accepted
+source leaves do not imply final PDF acceptance.
+
+Editorial reconstruction uses `tei:seg type="supplied" subtype="scholars"`,
+with its basis in a note. The scan s217 words “of our” use this encoding; the
+false “devises” emendation on s211 has been removed after image confirmation.
+Optional מלכנו, של יעקב and כל use marked `opensiddur:variant` conditions,
+with edition-independent condition URNs, instead of duplicated wording options.
+Nine actual compilation cases verify true/false/unset selection, and electronic
+exports verify the undecided delimiters. The repetition heading already belongs
+to the documentary spine; a temporary duplicate module heading was removed.
+Refreshed checks pass 162 compiled occurrence/language comparisons, 106 bounded
+quotations, eight Shabbat/rite/minyan selections, feature/name/URN validation,
+and both HTML exports' internal links and popover targets. These checks precede
+the final three Umippenei metegs and must be refreshed after the four remaining
+source decisions. All 24 unique source page markers survive in documentary XML;
+the existing parallel-compiler limitation still drops three in compiled output.

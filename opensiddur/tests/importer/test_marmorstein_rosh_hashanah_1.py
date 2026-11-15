@@ -1243,7 +1243,21 @@ class EditionWiringTest(unittest.TestCase):
             self.assertEqual(before, {p: p.stat().st_mtime_ns for p in before})
         self.assertEqual(regenerate(self.book), result)
 
-    def test_alternatives_select_one_wording_and_enter_review_payload(self):
+    def test_reconstructed_span_keeps_wording_and_enters_review_payload(self):
+        unit = self.readings['units'][0]
+        fragment = unit['languages']['he'][0]['fragments'][0]
+        fragment.update(text='reconstructed', text_type='supplied', text_subtype='scholars')
+        self.save('readings', self.readings)
+        self.generate(draft=True)
+        root = etree.parse(str(self.projects/PROJECTS['he']/'first.xml'))
+        supplied = root.find('.//'+T+'seg[@type="supplied"]')
+        self.assertEqual(supplied.get('subtype'), 'scholars')
+        self.assertEqual(''.join(supplied.itertext()), 'reconstructed')
+        baseline = unit_review_text(unit, 'he')
+        fragment['text_subtype'] = 'author'
+        self.assertNotEqual(baseline, unit_review_text(unit, 'he'))
+
+    def test_alternatives_preserve_each_wording_and_enter_review_payload(self):
         unit = self.readings['units'][0]
         fragment = unit['languages']['he'][0]['fragments'][0]
         fragment.update(text='ראש משה (נ״א מנשה) סוף', alternatives=[

@@ -455,6 +455,8 @@ def unit_document(unit, lang, draft):
                 content = element(paragraph, 'seg', **attributes)
             if fragment.get('text_type'):
                 content = element(content, 'seg', type=fragment['text_type'])
+                if fragment.get('text_subtype'):
+                    content.set('subtype', fragment['text_subtype'])
             if fragment.get('alternatives'):
                 if any(fragment.get(key) for key in ('qere_ketiv', 'expansion', 'abbreviations',
                                                      'uncertain_characters', 'enlarged_letters')):
@@ -585,6 +587,8 @@ def unit_review_text(unit, lang):
             parts.append(fragment['text'])
             if fragment.get('text_type'):
                 parts.append('['+fragment['text_type']+']')
+                if fragment.get('text_subtype'):
+                    parts.append('[subtype '+fragment['text_subtype']+']')
             if fragment.get('expansion'):
                 parts.append('['+fragment['expansion']+']')
             parts.extend('[written '+reading['written']+'; read '+reading['read']+']'
