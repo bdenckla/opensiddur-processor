@@ -1118,3 +1118,53 @@ and expanded previews contain 139 and 158 pages. Both electronic exports have
 unique IDs and resolved internal links. Exporter reference corrections remain
 in separate PR 301; optional absent destinations must suppress their navigation
 clauses while required unresolved references still fail validation.
+
+## Shofar, Torah return and cantor prayers (PDF184–199)
+
+The next draft installment covers sixteen physical leaves, ending immediately
+before Musaf half-Kaddish on PDF200. It adds 27 modules / 47 language witnesses.
+Scans188 and189 mix Hebrew and English and carry distinct printed labels 83 and 84;
+190/191 both carry 85. Use the explicit image-verified label map; no arithmetic
+between languages or their printed labels is valid here.
+
+Reuse existing Shehecheyanu, Yequm Purqan, Mi Sheberakh, Hanoten Teshuah, Uvenuchoh,
+and Hineni identities. In particular, Hineni retains the existing five canonical
+stanza boundaries. New identities cover genuinely unmatched blower/cantor prayers
+and the Shofar blessing; service occurrences of repeated psalms and verses remain
+contexts referencing canonical Scripture. The cantor's Exodus 19:19 quotation ends
+before מאד: `vayehi_qol` is bounded by `meod` in both Hebrew Bible providers without
+altering any Scripture words. The Numbers 29:1 quotation is half-verse b. The
+adapted Psalm 90:17 phrase does not claim the complete canonical verse.
+
+English Psalm 29:7 is absent and stays absent. Source typos “May it by” and
+“Wis compassion” use sic/corr while source readings remain unchanged. The printed
+Moses / Menasseh annotation is an alternate wording, not two recited names:
+fragment `alternatives` maps one exact printed span to two or more `j:option`
+readings, and its interpretation enters review hashes. Preserve the human-read
+נ״א annotation in a commentary note with abbr/expan. Never mix alternatives with
+qere/ketiv or other overlapping fragment readings. Citation abbreviation
+interpretations also enter their review payloads.
+
+The expanded weekday Shofar sequence contains all 30 sound calls, nine rows and
+one final prolonged sound. Sound names and שֵׁב are actions, not recited prayer
+words. Keep both sit directions. Separate the blower's quiet prayer from the
+following full Psalm 149; do not label that psalm quiet without source evidence.
+Congregation and blower occurrences of Ashrei HaAm are distinct structural
+occurrences of one canonical text. The human adjudication confirms that congregational וכו׳ directs only the
+printed Psalm 89:16, without adding verses 17–18. Shabbat skips Shofar and enters the communal
+prayers. Ashrei remains available without a minyan; public Torah return and
+cantor duties require one. Select Psalm 29 on Shabbat and Psalm 24 otherwise.
+
+The native cantor direction requires the same four verses before Hamelekh and
+before Musaf Kaddish. Expose opening / hamelekh boundaries within HaEl Betaatzumot
+without changing its documentary words. Repeat the verse transclusion at both
+positions; keep the morning selection running into a locally declared Musaf
+prelude. Move the documentary index-only progress note after the cantor prayers,
+before the separate daily-psalm appendix.
+
+Emit source page breaks only at real boundaries. Mid-page modules retain their
+own facsimile provenance without creating false page starts. `opening_page` can
+place a real boundary before a source rubric; a heading must not duplicate it.
+Human-confirmed source cantillation is retained, including the likely erroneous
+zarqa over peh in פניך; do not invent its correction. Draft structural review and
+source reading acceptance remain separate; accepted leaves stay 100/355.

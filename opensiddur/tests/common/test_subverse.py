@@ -513,6 +513,14 @@ class TestDeclaredVerseParts(SubverseTestCase):
         self.assertEqual(self.scope(xml, f"{URN}genesis/1/31/b"), "וַיְהִי־עֶרֶב וַיְהִי־בֹקֶר")
         self.assertEqual(self.scope(xml, f"{URN}genesis/1/31/yom_hashishi"), "יוֹם הַשִּׁשִּׁי׃")
 
+    def test_cantor_shofar_quote_excludes_meod_and_moses(self):
+        text = "וַיְהִי קוֹל הַשֹּׁפָר הוֹלֵךְ וְחָזֵק מְאֹד מֹשֶׁה יְדַבֵּר׃"
+        xml = document(f"<tei:p>{verse(f'{URN}exodus/19/19', '19')}{text}</tei:p>")
+        result = self.verse_parts(xml)
+        self.assertEqual(self.scope(result, f"{URN}exodus/19/19/vayehi_qol"),
+                         "וַיְהִי קוֹל הַשֹּׁפָר הוֹלֵךְ וְחָזֵק")
+        self.assertEqual("".join(etree.fromstring(result.encode()).itertext()), text)
+
     def test_no_declared_part_name_contains_a_dash(self):
         """A dash in the last component of a URN is what marks a range."""
         for key, parts in VERSE_PARTS.items():

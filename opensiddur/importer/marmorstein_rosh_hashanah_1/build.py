@@ -25,7 +25,8 @@ from . import BOOK, IDENTIFIER, PROJECTS, EXPANDED, ROOT_URN, EXPANDED_URN
 
 FRONT_KINDS = ('cover', 'title', 'copyright', 'preface')
 ROLE_LABELS = {'reader': 'חזן', 'congregation': 'קהל',
-               'reader_and_congregation': 'קהל וחזן', 'oleh': 'העולה לתורה'}
+               'reader_and_congregation': 'קהל וחזן', 'oleh': 'העולה לתורה',
+               'blower': 'תוקע'}
 
 
 def document(lang, project, title, urn, *, index=False, draft=False):
@@ -186,10 +187,15 @@ def unit_document(unit, lang, draft):
         conditional.set(XML+'id', unit['stem']+'_condition')
         feature_structures(element(conditional, 'j:all'), conditions)
     current_page = None
-    if unit.get('head', {}).get(lang):
-        opening = unit['languages'][lang][0]['fragments'][0]
+    if unit.get('opening_page', {}).get(lang):
         element(div, 'pb', ed='1965', n=opening['printed_page'],
                 facs=page_image_url(IDENTIFIER, int(opening['scan'][1:])-1, size=''))
+        current_page = opening['scan']
+    if unit.get('head', {}).get(lang):
+        opening = unit['languages'][lang][0]['fragments'][0]
+        if current_page != opening['scan'] and opening.get('page_start', True):
+            element(div, 'pb', ed='1965', n=opening['printed_page'],
+                    facs=page_image_url(IDENTIFIER, int(opening['scan'][1:])-1, size=''))
         current_page = opening['scan']
         element(div, 'head', unit['head'][lang]).set(XML+'lang', lang)
     for instruction in unit_instructions(unit, lang):
@@ -229,7 +235,7 @@ def unit_document(unit, lang, draft):
                 element(paragraph, 'ref', citation_text, target=citation['reference'])
             elif citation.get('text_type'):
                 element(paragraph, 'seg', citation_text, type=citation['text_type'])
-            elif citation.get('uncertain_characters'):
+            elif citation.get('uncertain_characters') or citation.get('abbreviations'):
                 rubric_words(paragraph, dict(citation, text=citation_text), lang)
             else:
                 paragraph.text = citation_text
@@ -447,7 +453,22 @@ def unit_document(unit, lang, draft):
                 content = element(paragraph, 'seg', **attributes)
             if fragment.get('text_type'):
                 content = element(content, 'seg', type=fragment['text_type'])
-            if fragment.get('qere_ketiv'):
+            if fragment.get('alternatives'):
+                if any(fragment.get(key) for key in ('qere_ketiv', 'expansion', 'abbreviations',
+                                                     'uncertain_characters', 'enlarged_letters')):
+                    raise ValueError('Alternatives cannot be combined with other fragment readings')
+                text = fragment['text']
+                for alternative in fragment['alternatives']:
+                    printed, readings = alternative['printed'], alternative['readings']
+                    if not printed or text.count(printed) != 1 or len(readings) < 2:
+                        raise ValueError('Alternatives require one printed span and at least two readings')
+                    before, text = text.split(printed, 1)
+                    words(content, before, text_language)
+                    choice = element(content, 'choice')
+                    for reading in readings:
+                        words(element(choice, 'j:option'), reading, text_language)
+                words(content, text, text_language)
+            elif fragment.get('qere_ketiv'):
                 if any(fragment.get(key) for key in ('expansion', 'abbreviations',
                                                      'uncertain_characters', 'enlarged_letters')):
                     raise ValueError('Qere/ketiv cannot be combined with other fragment readings')
@@ -525,6 +546,8 @@ def unit_review_text(unit, lang):
     # This is a review payload, not printed prayer text. Include both the
     # source abbreviation and its interpretation so either change needs review.
     parts = ([unit['head'][lang]] if unit.get('head', {}).get(lang) else [])
+    if unit.get('opening_page', {}).get(lang):
+        parts.append('[source page starts before opening rubric]')
     parts.extend(instruction['text'] for instruction in unit_instructions(unit, lang))
     for instruction in unit_instructions(unit, lang):
         parts.extend(a['abbr']+' ['+a['expan']+']' for a in instruction.get('abbreviations', []))
@@ -556,6 +579,9 @@ def unit_review_text(unit, lang):
                 parts.append('['+fragment['expansion']+']')
             parts.extend('[written '+reading['written']+'; read '+reading['read']+']'
                          for reading in fragment.get('qere_ketiv', []))
+            parts.extend('[printed '+alternative['printed']+'; alternatives '+
+                         ' | '.join(alternative['readings'])+']'
+                         for alternative in fragment.get('alternatives', []))
             parts.extend(a['abbr']+' ['+a['expan']+']' for a in fragment.get('abbreviations', []))
             parts.extend(item['word']+' [uncertain '+item['character']+'; cert=low]'
                          for item in fragment.get('uncertain_characters', []))
@@ -744,7 +770,7 @@ def require_review(readings, reviews):
                 raise ValueError(f"Independent review pending or stale: {unit['stem']}/{lang}; use --draft for inspection")
             for index, citation in enumerate(unit.get('citations', {}).get(lang, [])):
                 key = f"citation/{unit['stem']}/{lang}/{index}"
-                if not review_is_current(reviews.get(key, {}), citation['text']):
+                if not review_is_current(reviews.get(key, {}), instruction_review_text(citation)):
                     raise ValueError('Independent citation review pending: '+key)
     by_identity = {unit['urn']: unit for unit in readings['units'] if unit.get('map_root', True)}
     for unit in readings['units']:

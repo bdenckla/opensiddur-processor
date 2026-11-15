@@ -92,6 +92,12 @@ class Unplaceable:
 #: passage that stops in the middle of a verse needs a part declared at the point the
 #: *remainder* begins as well: `lo_yenakeh` exists to end `venakeh`.
 VERSE_PARTS: dict[tuple[str, int, int], tuple[tuple[str, dict[str, str]], ...]] = {
+    # The cantor's prayer quotes the growing shofar sound, stopping before
+    # "exceedingly" and the account of Moses speaking.
+    ("exodus", 19, 19): (
+        ("vayehi_qol", {"he": "ויהי קול"}),
+        ("meod", {"he": "מאד"}),
+    ),
     # Kiddush opens on the last two words of the sixth day rather than on the half-verse,
     # so that it does not begin with "and there was evening".
     ("genesis", 1, 31): (

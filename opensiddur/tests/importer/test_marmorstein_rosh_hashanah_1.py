@@ -1243,6 +1243,44 @@ class EditionWiringTest(unittest.TestCase):
             self.assertEqual(before, {p: p.stat().st_mtime_ns for p in before})
         self.assertEqual(regenerate(self.book), result)
 
+    def test_alternatives_select_one_wording_and_enter_review_payload(self):
+        unit = self.readings['units'][0]
+        fragment = unit['languages']['he'][0]['fragments'][0]
+        fragment.update(text='ראש משה (נ״א מנשה) סוף', alternatives=[
+            {'printed': 'משה (נ״א מנשה)', 'readings': ['משה', 'מנשה']}])
+        self.save('readings', self.readings)
+        self.generate(draft=True)
+        root = etree.parse(str(self.projects/PROJECTS['he']/'first.xml'))
+        choice = root.find('.//'+T+'choice')
+        self.assertEqual([node.text for node in choice.findall(J+'option')], ['משה', 'מנשה'])
+        self.assertIn('משה | מנשה', unit_review_text(unit, 'he'))
+        baseline = unit_review_text(unit, 'he')
+        fragment['alternatives'][0]['readings'].reverse()
+        self.assertNotEqual(baseline, unit_review_text(unit, 'he'))
+        fragment['alternatives'][0]['readings'] = ['משה']
+        self.save('readings', self.readings)
+        with self.assertRaisesRegex(ValueError, 'at least two readings'):
+            self.generate(draft=True)
+        fragment['alternatives'][0]['readings'] = ['משה', 'מנשה']
+        fragment['qere_ketiv'] = [{'written': 'משה', 'read': 'מנשה'}]
+        self.save('readings', self.readings)
+        with self.assertRaisesRegex(ValueError, 'cannot be combined'):
+            self.generate(draft=True)
+
+    def test_page_start_precedes_rubric_and_head_without_duplicate_pb(self):
+        unit = self.readings['units'][0]
+        unit['opening_page'] = {'he': True}
+        unit['head'] = {'he': 'כותרת'}
+        unit['instructions'] = [{'text': 'הוראה', 'language': 'he', 'witnesses': ['he']}]
+        self.save('readings', self.readings)
+        self.generate(draft=True)
+        root = etree.parse(str(self.projects/PROJECTS['he']/'first.xml'))
+        div = root.find('.//'+T+'body/'+T+'div')
+        self.assertEqual([node.tag for node in list(div)[:3]],
+                         [T+'pb', T+'head', T+'note'])
+        self.assertEqual(len(div.findall('.//'+T+'pb')), 2)  # one per actual scan
+        self.assertIn('source page starts', unit_review_text(unit, 'he'))
+
     def test_qere_ketiv_preserves_printed_form_and_invalidates_review(self):
         unit = self.readings['units'][0]
         unit['languages']['he'] = unit['languages']['he'][:1]

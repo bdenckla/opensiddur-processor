@@ -32,7 +32,7 @@ def report(source):
             for index, citation in enumerate(unit.get('citations', {}).get(lang, [])):
                 key = f"citation/{unit['stem']}/{lang}/{index}"
                 fragments.setdefault(citation['scan'], []).append(key)
-                if not review_is_current(reviews.get(key, {}), citation['text']):
+                if not review_is_current(reviews.get(key, {}), instruction_review_text(citation)):
                     pending.append(key)
     for name, navigation in readings.get('navigation', {}).items():
         for lang in navigation['scan']:
