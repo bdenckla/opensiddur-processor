@@ -1257,5 +1257,8 @@ Musaf pages were visually checked for bilingual alignment, source points,
 conditional layout, headings and apparatus placement. Rendering uses separate
 exporter PR301 and the recorded temporary rubric keep-with-next preview patch;
 the renderer worktree is restored afterward. These remain draft previews.
-All 24 unique source page markers survive in documentary XML; the existing
-parallel-compiler limitation still drops three in compiled output.
+All 24 unique source page markers survive in documentary XML. Merged exporter
+PR301 also preserves all 24 in parallel compilation, including the three formerly
+lost leading markers. The regression checks show unchanged visible HTML and
+byte-identical PDF typesetting input. The earlier preview/QA snapshots retain
+their historical pre-fix marker counts.
