@@ -1338,3 +1338,33 @@ all30host placements and two bilingual source-word comparisons pass. Neither
 that witness’s acceptance nor schema checks certify other passages on174.
 Acceptance is174/224encoded leaves;50remain under review. Current human
 questions81–88 concern exact occurrences on116and118; earlier questions are closed.
+
+
+### Completion review checkpoint: 179 accepted encoded leaves
+
+Acceptance now covers 179 of 224 encoded leaves; 45 remain under review.
+All human questions 7–105, including the separate 80 and 95b follow-ups,
+are settled and applied. The current open batch is 106–113 on PDF scan122
+(printed p.47), with enlarged numbered source snippets.
+
+The ordinary Amidah Avot, Gevurot, Qedushat Hashem, Qedushat Hayom and
+Avodah now have source/guideline acceptance, as do the four Hebrew-only
+repetition units Qedushat Hashem, Qedushat Hayom, Modim and Hodaah tail.
+Actual negative source reports remain intact with exact human adjudications;
+whole-payload replay checks bind the corrections to their reviewed snapshots.
+The independent structural follow-up approves the precise Malkeinu note
+anchor, coherent Modim contexts and bounded Hodaah tail correspondences.
+
+A runtime check exposed unrelated English Eruv Tavshilin being attached to
+a Hebrew-only repetition unit. The exporter paired unmatched transclusions
+by position. The isolated fix is processor PR309, commit93f33b1, with
+206 passing tests and16 passing subtests. Actual maḥzor checks with that fix
+preserve four Hebrew-only modules without unrelated English, both real
+documentary Modim targets, the page155 marker and the precise note anchor.
+This dependency remains separate from the digitization branch. Final volume
+exports and visual acceptance still require the fix and the remaining review.
+
+The earlier174/224 checkpoint and its then-open81–88 batch are historical.
+Existing PDF/electronic previews predate these corrections and do not certify
+the current encoded volume. The 131 unencoded leaves remain outside this
+completion-review scope.
