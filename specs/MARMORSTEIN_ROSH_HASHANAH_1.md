@@ -1315,3 +1315,10 @@ Actual parallel compilation verifies eight source-text comparisons and three
 new shared speaker rows across the four accepted piyyutim. Other Hebrew witnesses
 remain pending: no English approval certifies its Hebrew counterpart, and no
 source acceptance is inferred from schema validation.
+
+The bounded morning Amidah review accepts Adonai Sefatai and retains fine-point
+questions for the other seven witnesses. Eight missing continuation-page markers
+are restored in four bilingual modules (Emet Veyatziv and three Amidah modules).
+Three clear Hebrew paragraph joins retain independent prayer-part boundaries.
+Actual parallel compilation preserves all eight markers and matches all eight
+source-text comparisons; these checks do not certify pending Hebrew readings.
