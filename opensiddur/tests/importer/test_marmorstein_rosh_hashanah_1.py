@@ -956,6 +956,23 @@ class EditionWiringTest(unittest.TestCase):
         self.assertEqual(root.find('.//'+T+'milestone[@unit="verse"][@n]').get('corresp'), verse)
         self.assertFalse(root.findall('.//*[@corresp="urn:x-opensiddur:text:bible:isaiah/6"]'))
 
+    def test_quotation_of_subverse_retains_its_chapter_and_verse_numbers(self):
+        context = BASE+'another/quotation'
+        self.registry_mock.records[context] = {}
+        for source, chapter, verse in [
+                ('urn:x-opensiddur:text:bible:ezekiel/3/12/b', '3', '12'),
+                ('urn:x-opensiddur:text:bible:isaiah/6/3/qadosh', '6', '3')]:
+            with self.subTest(source=source):
+                self.readings['units'][0]['languages']['he'] = [{
+                    'corresp': context, 'source': source, 'reference_unit': 'verse',
+                    'fragments': [{'scan': 's1', 'text': 'quotation'}]}]
+                self.save('readings', self.readings)
+                self.generate(draft=True)
+                root = etree.parse(str(self.projects/PROJECTS['he']/'first.xml'))
+                self.assertEqual(root.find('.//'+T+'milestone[@unit="chapter"][@n]').get('n'), chapter)
+                self.assertEqual(root.find('.//'+T+'milestone[@unit="verse"][@n]').get('n'), verse)
+                self.assertIsNotNone(root.find('.//'+T+'seg[@source="'+source+'"]'))
+
     def test_bounded_scripture_context_does_not_end_its_enclosing_prayer_part(self):
         chapter = BASE+'another/quoted_isaiah_6'
         verse = chapter+'/3'

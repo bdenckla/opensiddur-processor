@@ -365,7 +365,7 @@ def unit_document(unit, lang, draft):
                     quoted_source = segment.get('source', '')
                     if reference_unit == 'verse' and ':bible:' in quoted_source:
                         parts = quoted_source.rsplit(':', 1)[-1].split('/')
-                        chapter = quoted_source.rsplit('/', 1)[0]
+                        chapter = quoted_source.rsplit('/', len(parts)-2)[0]
                         if chapter != current_chapter:
                             close_references()
                             chapter_attributes = {'unit': 'chapter', 'n': parts[1]}
@@ -373,7 +373,9 @@ def unit_document(unit, lang, draft):
                                 chapter_attributes['corresp'] = segment['chapter_corresp']
                             element(paragraph, 'milestone', **chapter_attributes)
                             current_chapter = chapter
-                        attributes = {'n': parts[-1]}
+                        # The occurrence marker is a verse even when its bounded
+                        # source names a half-verse or named verse-part.
+                        attributes = {'n': parts[2]}
                     elif current_chapter:
                         close_references()
                 if active_reference and active_reference != reference_unit:

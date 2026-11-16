@@ -1262,3 +1262,35 @@ PR301 also preserves all 24 in parallel compilation, including the three formerl
 lost leading markers. The regression checks show unchanged visible HTML and
 byte-identical PDF typesetting input. The earlier preview/QA snapshots retain
 their historical pre-fix marker counts.
+
+## Completion review of the encoded backlog, 2026-11-15
+
+The final human decisions settle the German rubric's final zayin on scan 57
+and the meteg in הלכו on scan 90. Both complete leaves are now accepted.
+Current source-image comparisons and an independent guideline follow-up also
+close the seven English Yotzer leaves 97, 99, 101, 103, 105, 107 and 109.
+Acceptance is now 133 of 224 encoded leaves (355 leaves in the volume).
+The remaining encoded material is under review; no new installment is started.
+
+The review corrects scan-confirmed spelling and punctuation, including מן־כל
+in the morning Kaddish and plene spellings in the Yotzer piyyutim. Exact
+quotation sources now use Isaiah 6:3/qadosh, Ezekiel 3:12/b and Psalms 92:2/a.
+Occurrence-context verse markers retain the containing canonical verse number,
+even when the bounded quotation source names a subverse. Regression coverage
+checks named verse-parts and accentual half-verses.
+
+The expanded weekday and Shabbat Yotzer alternatives each have one bilingual
+condition rubric and a matching local declaration. Documentary continuation
+rubrics remain in the source; the local declarations suppress them in expanded
+recitation, including when the outer day choice is undecided. Actual compiler
+checks cover unknown/weekday/Shabbat and weekday Frankfurt. Frankfurt Bameh
+Madlikin now uses the same frankfurt_am_main feature as the later rite rules.
+Independent guideline follow-up approves these changes. Source fine marks are
+accepted separately, never on the strength of structural approval alone.
+
+Actual new source/guideline reports, frozen inputs, correction decisions and
+human resolutions are retained under independent/completion_review_2026_11
+and the two completion_review_2026_11_*_acceptance records in the sources.
+The scan-124 piyyut still has substantive source discrepancies requiring
+reconciliation, alongside the remaining fine-mark backlog. Existing preview
+PDFs predate these completion-review corrections and remain draft previews.
