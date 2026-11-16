@@ -1269,7 +1269,7 @@ The final human decisions settle the German rubric's final zayin on scan 57
 and the meteg in הלכו on scan 90. Both complete leaves are now accepted.
 Current source-image comparisons and an independent guideline follow-up also
 close the seven English Yotzer leaves 97, 99, 101, 103, 105, 107 and 109.
-Acceptance is now 172 of 224 encoded leaves (355 leaves in the volume).
+Acceptance is now 174 of 224 encoded leaves (355 leaves in the volume).
 The remaining encoded material is under review; no new installment is started.
 
 The review corrects scan-confirmed spelling and punctuation, including מן־כל
@@ -1322,3 +1322,19 @@ are restored in four bilingual modules (Emet Veyatziv and three Amidah modules).
 Three clear Hebrew paragraph joins retain independent prayer-part boundaries.
 Actual parallel compilation preserves all eight markers and matches all eight
 source-text comparisons; these checks do not certify pending Hebrew readings.
+
+Human adjudications70–80, including the explicit80he-meteg follow-up, now
+close all source disputes in Naalah Vedin, Melekh Bedin, two short repetition
+passages, the Kaddish preface and the Shofar blower’s quiet prayer. Existing
+canonical identities are retained, with two new shared reader-clause occurrence
+contexts outside both day branches. Four source-word comparisons and twelve
+actual day/language/poem checks pass. Scan126 is fully accepted.
+
+The printed Taalat Zu acrostic description now travels with the reusable poem,
+with the scan128 marker before it. Actual independent source/placement review
+and single-transclusion verification close scan128. The blessing before the
+haftarah retains its complete printed cantillation:26accents,3metegs,1silluq;
+all30host placements and two bilingual source-word comparisons pass. Neither
+that witness’s acceptance nor schema checks certify other passages on174.
+Acceptance is174/224encoded leaves;50remain under review. Current human
+questions81–88 concern exact occurrences on116and118; earlier questions are closed.
