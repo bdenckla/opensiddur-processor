@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import tzfpy
+import yaml
 from lxml import etree
 from pydantic import ValidationError
 
@@ -273,6 +274,21 @@ PAGE_REF = f'<tei:ref type="page" target="{URN}@proj"/>'
 @unchecked_registry()
 class TestPageReferences(unittest.TestCase):
     """Where print gives a page number, the electronic book links to the passage."""
+
+    def test_literal_reference_preserves_its_words_and_all_visible_destinations(self):
+        urn = "urn:x-opensiddur:text:prayer:refrain"
+        main = _render(f'<tei:p><tei:ref target="{urn}@proj">Return '
+                       '<tei:emph>here</tei:emph></tei:ref></tei:p>'
+                       f'<tei:div corresp="{urn}"><tei:p>First</tei:p></tei:div>'
+                       f'<tei:div corresp="{urn}"><tei:p>Repeated</tei:p></tei:div>')
+        link, = main.xpath('//h:a', namespaces=NS)
+        self.assertEqual(_classes(link), ['ref'])
+        self.assertEqual(''.join(link.itertext()), 'Return here')
+        label = link.get('href')[1:]
+        self.assertTrue(label.startswith('os-page-'))
+        copies = main.xpath('//*[@data-page-label=$label]', label=label)
+        self.assertEqual(len(copies), 2)
+        self.assertEqual(sum(node.get('id') == label for node in copies), 1)
 
     def test_reference_links_to_an_anchor_in_its_destination(self):
         main = _render(f'<tei:p>Grace continues on page {PAGE_REF}.</tei:p>'
@@ -710,14 +726,19 @@ class TestElectronicSettings(unittest.TestCase):
 
     def test_defaults(self):
         self.assertEqual(ElectronicSettings().model_dump(),
-                         {"day": "now", "columns": "both", "psalm_titles": "printed"})
+                         {"day": "now", "columns": "both", "psalm_titles": "printed",
+                          "scan_viewer": "off"})
+
+    def test_a_bare_off_in_yaml_is_off(self):
+        self.assertEqual("off", ElectronicSettings.model_validate(
+            yaml.safe_load("scan_viewer: off")).scan_viewer)
 
     def test_values(self):
         self.assertEqual(ElectronicSettings.model_validate({"day": "none"}).day, "none")
         self.assertEqual(
             ElectronicSettings.model_validate({"psalm_titles": "uniform"}).psalm_titles, "uniform")
         for bad in ({"day": "tomorrow"}, {"columns": "hebrew"}, {"days": "now"},
-                    {"psalm_titles": "numbered"}):
+                    {"psalm_titles": "numbered"}, {"scan_viewer": "sideways"}):
             with self.subTest(bad=bad), self.assertRaises(ValidationError):
                 ElectronicSettings.model_validate(bad)
 
@@ -901,11 +922,51 @@ class TestBuildBook(unittest.TestCase):
         self.assertNotIn("data-columns", re.search(r"<html[^>]*>", page).group(0))
 
     def test_the_book_starts_as_its_settings_file_says(self):
-        self.assertEqual(self._book(self._build())["start"], {"day": "now", "columns": "both"})
+        self.assertEqual(self._book(self._build())["start"], {"day": "now", "columns": "both", "scan_viewer": "off"})
         self.settings.write_text(SETTINGS + "electronic:\n  day: none\n  columns: primary\n",
                                  encoding="utf-8")
         self.assertEqual(self._book(self._build())["start"],
-                         {"day": "none", "columns": "primary"})
+                         {"day": "none", "columns": "primary", "scan_viewer": "off"})
+
+    _SCAN_BODY = ('<tei:p><tei:pb n="3" ed="1" '
+                  'facs="https://archive.org/download/book/page/n9_medium.jpg"/>words '
+                  '<tei:pb n="4" ed="1" facs="https://scan.example/viewer?page=4"/>more</tei:p>')
+
+    def _scan_book(self, viewer: str) -> str:
+        self.settings.write_text(
+            SETTINGS.replace("typography:\n  markers:\n",
+                             "typography:\n  markers:\n    scan_links:\n      placement: inline\n")
+            + f"electronic:\n  scan_viewer: {viewer}\n", encoding="utf-8")
+        self.compiled.write_bytes(_compiled(self._SCAN_BODY))
+        return build_book(self.compiled, self.settings, self.base)
+
+    @staticmethod
+    def _link(page: str, n: str) -> str:
+        return re.search(r'<a [^>]*data-n="%s"[^>]*>' % n, page).group(0)
+
+    def test_a_scan_viewer_book_says_what_each_link_shows(self):
+        page = self._scan_book("vertical")
+        self.assertEqual("vertical", self._book(page)["start"]["scan_viewer"])
+        archive = self._link(page, "3")
+        self.assertIn('data-scan-view="https://archive.org/download/book/page/n9.jpg"', archive)
+        self.assertIn('data-scan-kind="image"', archive)
+        # A web page the viewer cannot show keeps opening in a new tab.
+        other = self._link(page, "4")
+        self.assertNotIn("data-scan-view", other)
+        self.assertIn('target="_blank"', other)
+
+    def test_without_the_viewer_links_carry_no_view(self):
+        page = self._scan_book("off")
+        self.assertEqual("off", self._book(page)["start"]["scan_viewer"])
+        self.assertNotIn('data-scan-view="', page)
+        self.assertIn("scan-link-inline", self._link(page, "3"))
+
+    def test_the_viewer_needs_scan_links(self):
+        self.settings.write_text(SETTINGS + "electronic:\n  scan_viewer: full\n",
+                                 encoding="utf-8")
+        with self.assertRaises((SettingsError, ValidationError)) as caught:
+            self._build()
+        self.assertIn("scan_links", str(caught.exception))
 
     def test_psalms_are_retitled_only_when_the_settings_ask(self):
         with patch("opensiddur.exporter.html.html.normalize_psalm_titles") as normalize:
@@ -915,7 +976,7 @@ class TestBuildBook(unittest.TestCase):
                                      encoding="utf-8")
             book = self._book(self._build())
             normalize.assert_called_once()
-        self.assertEqual(book["start"], {"day": "now", "columns": "both"})
+        self.assertEqual(book["start"], {"day": "now", "columns": "both", "scan_viewer": "off"})
 
     def test_places_only_where_the_day_matters(self):
         self.assertEqual(self._book(self._build())["places"], [])
@@ -1117,3 +1178,78 @@ class TestNotesAndDirection(unittest.TestCase):
     def test_hebrew_is_right_to_left(self):
         main = _render('<tei:p><tei:foreign xml:lang="he">שמע</tei:foreign></tei:p>')
         self.assertEqual(main.xpath("//*[@lang='he']")[0].get("dir"), "rtl")
+
+
+class TestScanLinks(unittest.TestCase):
+    """typography.markers.scan_links in the electronic book."""
+
+    _URL = "https://www.hebrewbooks.org/pdfpager.aspx?req=4909&amp;pgnum=6"
+
+    def _pb(self, marked: bool = True) -> str:
+        mark = ' p:scan-link="true"' if marked else ""
+        return f'<tei:pb n="3v" ed="1822" facs="{self._URL}"{mark}/>'
+
+    def test_a_marked_break_links_to_its_scan(self):
+        out = _render(f"<tei:p>{self._pb()}words</tei:p>", **{"scan-links": "margin"})
+        link = out.find(".//h:a[@data-n='3v']", NS)
+        self.assertEqual("https://www.hebrewbooks.org/pdfpager.aspx?req=4909&pgnum=6",
+                         link.get("href"))
+        self.assertEqual(["pb", "scan-link", "scan-link-margin"], _classes(link))
+        self.assertEqual("Scan of page 3v", link.get("aria-label"))
+        self.assertEqual("_blank", link.get("target"))
+        self.assertEqual("noopener", link.get("rel"))
+        # The symbol is CSS's, so the link has no words of its own.
+        self.assertEqual("", "".join(link.itertext()))
+
+    def test_without_scan_links_the_break_stays_hidden(self):
+        out = _render(f"<tei:p>{self._pb()}words</tei:p>")
+        self.assertIsNone(out.find(".//h:a[@data-n='3v']", NS))
+        self.assertIsNotNone(out.find(".//h:span[@class='pb']", NS))
+
+    def test_an_unmarked_break_stays_hidden(self):
+        out = _render(f"<tei:p>{self._pb(marked=False)}words</tei:p>",
+                      **{"scan-links": "inline"})
+        self.assertIsNone(out.find(".//h:a[@data-n='3v']", NS))
+
+    def test_a_column_holding_only_a_link_is_still_empty(self):
+        out = _render(
+            '<p:parallel column-order="primary_first">'
+            f'<p:parallelItem role="primary" xml:lang="he">{self._pb()}</p:parallelItem>'
+            '<p:parallelItem role="parallel" xml:lang="en"><tei:p>Words</tei:p></p:parallelItem>'
+            "</p:parallel>", **{"scan-links": "inline"})
+        column = out.find(".//h:div[@lang='he']", NS)
+        self.assertIn("col-empty", _classes(column))
+
+    def test_the_parameter_follows_the_setting(self):
+        typography = TypographyConfig.model_validate(
+            {"markers": {"scan_links": {"placement": "inline"}}})
+        self.assertEqual("inline", xslt_parameters(typography)["scan-links"])
+        self.assertEqual("none", xslt_parameters(TypographyConfig())["scan-links"])
+
+
+class TestScanLinkCss(unittest.TestCase):
+    def _css(self, **scan_links) -> str:
+        return typography_css(TypographyConfig.model_validate(
+            {"markers": {"scan_links": scan_links}}))
+
+    def test_none_draws_no_symbol(self):
+        css = typography_css(TypographyConfig())
+        self.assertNotIn(".scan-link::before", css)
+        self.assertNotIn(".scan-link-margin", css)
+
+    def test_the_symbol_is_drawn_in_the_latin_family(self):
+        css = self._css(placement="inline", symbol='"x')
+        self.assertIn('.scan-link::before { content: "\\"x"; font-family: var(--font-latin); }',
+                      css)
+        self.assertIn(".scan-link { display: inline;", css)
+
+    def test_inline_has_no_margin(self):
+        self.assertNotIn(".scan-link-margin", self._css(placement="inline"))
+
+    def test_margin_is_kept_inside_the_row_and_only_on_wide_screens(self):
+        css = self._css(placement="margin")
+        margin = css[css.index("@media (min-width: 40.001rem) { .os-book"):]
+        self.assertIn(".par { padding-inline: 1.6rem; }", margin)
+        self.assertIn(".col { position: relative; --scan-link-offset: -1.6rem; }", margin)
+        self.assertIn(".scan-link-margin { position: absolute; "
+                      "inset-inline-start: var(--scan-link-offset); }", margin)

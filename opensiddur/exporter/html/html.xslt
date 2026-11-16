@@ -38,6 +38,12 @@
     <xsl:param name="distribution-notice" as="xs:boolean" select="false()"/>
     <xsl:param name="notes-mark" as="xs:string" select="'numeric'"/>
     <xsl:param name="notes-visible" as="xs:boolean" select="true()"/>
+    <!-- typography.markers.scan_links: none | inline | margin. A page break the pre-pass
+         marked p:scan-link (scan_links.py) links to the scan of its page; the symbol is
+         drawn by CSS, so the link has no text of its own and a column holding nothing else
+         is still empty. -->
+    <xsl:param name="scan-links" as="xs:string" select="'none'"/>
+    <xsl:param name="scan-link-label" as="xs:string" select="'Scan of page'"/>
 
     <!-- The first element to carry a URN gets it as its id, so #urn:x-opensiddur:... links
          to it; the parallel column's copy, and every later one, does not, ids being unique. -->
@@ -369,6 +375,15 @@
         <xsl:apply-templates/>
     </xsl:template>
 
+    <xsl:template match="tei:ref[@p:local-target]" priority="2">
+        <a href="#{@p:local-target}">
+            <xsl:call-template name="attributes">
+                <xsl:with-param name="class" select="'ref'"/>
+            </xsl:call-template>
+            <xsl:apply-templates/>
+        </a>
+    </xsl:template>
+
     <xsl:template match="tei:ref">
         <span>
             <xsl:call-template name="attributes">
@@ -376,6 +391,22 @@
             </xsl:call-template>
             <xsl:apply-templates/>
         </span>
+    </xsl:template>
+
+    <xsl:template match="tei:pb[@p:scan-link = 'true'][$scan-links != 'none']" priority="1">
+        <a href="{@facs}" data-n="{@n}" title="{$scan-link-label} {@n}"
+           aria-label="{$scan-link-label} {@n}" target="_blank" rel="noopener">
+            <xsl:call-template name="attributes">
+                <xsl:with-param name="class"
+                                select="'pb', 'scan-link', concat('scan-link-', $scan-links)"/>
+            </xsl:call-template>
+            <!-- What the scan viewer shows, when the book has one (html.py, scan_view.py):
+                 an image or a PDF. Without it the link opens in a new tab. -->
+            <xsl:if test="@p:scan-view">
+                <xsl:attribute name="data-scan-view" select="@p:scan-view"/>
+                <xsl:attribute name="data-scan-kind" select="@p:scan-kind"/>
+            </xsl:if>
+        </a>
     </xsl:template>
 
     <xsl:template match="tei:pb">
