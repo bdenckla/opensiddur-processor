@@ -1269,7 +1269,7 @@ The final human decisions settle the German rubric's final zayin on scan 57
 and the meteg in הלכו on scan 90. Both complete leaves are now accepted.
 Current source-image comparisons and an independent guideline follow-up also
 close the seven English Yotzer leaves 97, 99, 101, 103, 105, 107 and 109.
-Acceptance is now 169 of 224 encoded leaves (355 leaves in the volume).
+Acceptance is now 172 of 224 encoded leaves (355 leaves in the volume).
 The remaining encoded material is under review; no new installment is started.
 
 The review corrects scan-confirmed spelling and punctuation, including מן־כל
@@ -1291,8 +1291,11 @@ accepted separately, never on the strength of structural approval alone.
 Actual new source/guideline reports, frozen inputs, correction decisions and
 human resolutions are retained under independent/completion_review_2026_11
 and the completion_review_2026_11_*_acceptance records in the sources.
-The scan-124 piyyut still has substantive source discrepancies requiring
-reconciliation, alongside the remaining fine-mark backlog. Existing preview
+The complete Melekh Azur Gevurah, At Chil Yom Pequddah, Taalat Zu and Even Chug
+piyyutim now have reconciled Hebrew source and alignment acceptance. Existing
+canonical identities are retained; corrected At/Zu spellings retain nine legacy
+aliases, and new speaker boundaries are occurrence contexts. Other Hebrew
+witnesses remain under review. Existing preview
 PDFs predate these completion-review corrections and remain draft previews.
 
 The English backlog now has scoped approval for all81 prayer-text witnesses in
@@ -1307,6 +1310,8 @@ a page-opening conditional rubric receives its source pb before the condition.
 Documentary Shofar passages obey the original weekday-only instruction while
 the original mixed navigation directive remains visible outside their scope.
 Actual compiler checks cover unknown/false/true selection in both languages.
-The targeted importer suite passes83tests and22subtests. Other Hebrew witnesses
+Current registry, importer and subverse checks pass169tests and38subtests.
+Actual parallel compilation verifies eight source-text comparisons and three
+new shared speaker rows across the four accepted piyyutim. Other Hebrew witnesses
 remain pending: no English approval certifies its Hebrew counterpart, and no
 source acceptance is inferred from schema validation.
