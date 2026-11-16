@@ -367,7 +367,7 @@ class EditionWiringTest(unittest.TestCase):
     def test_documentary_condition_does_not_gate_the_reusable_verse(self):
         self.readings['documentary_instructions'] = {'sabbath': {
             'text': '(On Sabbath)', 'language': 'en', 'witnesses': ['he'],
-            'scan': 's1', 'printed_page': '7'}}
+            'scan': 's1', 'printed_page': '7', 'page_start': True}}
         self.readings['source_order'] = [{'section': 'sabbath', 'heading': None,
             'corresp': BASE+'another',
             'conditions': [{'type': 'opensiddur:holiday-aggregate', 'features': {'shabbat': True}}],
@@ -377,6 +377,10 @@ class EditionWiringTest(unittest.TestCase):
         index = etree.parse(str(self.projects/PROJECTS['he']/'index.xml'))
         condition = index.find('.//'+J+'conditional')
         self.assertEqual(condition[0].text, '(On Sabbath)')
+        boundary = condition.getprevious()
+        self.assertEqual(boundary.tag, T+'pb')
+        self.assertEqual(boundary.get('n'), '7')
+        self.assertTrue(boundary.get('facs').endswith('/n0.jpg'))
         self.assertIsNotNone(index.find('.//'+J+'endConditional'))
         verse = etree.parse(str(self.projects/PROJECTS['he']/'first.xml'))
         self.assertFalse(verse.findall('.//'+J+'conditional'))

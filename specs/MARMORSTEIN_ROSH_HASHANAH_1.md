@@ -1269,7 +1269,7 @@ The final human decisions settle the German rubric's final zayin on scan 57
 and the meteg in הלכו on scan 90. Both complete leaves are now accepted.
 Current source-image comparisons and an independent guideline follow-up also
 close the seven English Yotzer leaves 97, 99, 101, 103, 105, 107 and 109.
-Acceptance is now 133 of 224 encoded leaves (355 leaves in the volume).
+Acceptance is now 169 of 224 encoded leaves (355 leaves in the volume).
 The remaining encoded material is under review; no new installment is started.
 
 The review corrects scan-confirmed spelling and punctuation, including מן־כל
@@ -1290,7 +1290,23 @@ accepted separately, never on the strength of structural approval alone.
 
 Actual new source/guideline reports, frozen inputs, correction decisions and
 human resolutions are retained under independent/completion_review_2026_11
-and the two completion_review_2026_11_*_acceptance records in the sources.
+and the completion_review_2026_11_*_acceptance records in the sources.
 The scan-124 piyyut still has substantive source discrepancies requiring
 reconciliation, alongside the remaining fine-mark backlog. Existing preview
 PDFs predate these completion-review corrections and remain draft previews.
+
+The English backlog now has scoped approval for all81 prayer-text witnesses in
+scans125–199 and41 documentary/editorial rubric records. Five bounded Hebrew
+Yotzer modules and scan96 also clear source/guideline review. Original incomplete
+English remains incomplete; obvious printed by/be uses sic/corr. Reusable Torah
+speaker/action descriptions travel with modules; unprinted English conditional
+labels are removed. Split expanded rubrics cite their actual source173.
+
+Documentary community prayers carry the source Shabbat condition and its rubric;
+a page-opening conditional rubric receives its source pb before the condition.
+Documentary Shofar passages obey the original weekday-only instruction while
+the original mixed navigation directive remains visible outside their scope.
+Actual compiler checks cover unknown/false/true selection in both languages.
+The targeted importer suite passes83tests and22subtests. Other Hebrew witnesses
+remain pending: no English approval certifies its Hebrew counterpart, and no
+source acceptance is inferred from schema validation.

@@ -825,11 +825,18 @@ def documentary_order(div, order, readings, by_stem, lang, project):
             conditions = occurrence.get('conditions', [])
             if conditions:
                 identifier = 'documentary_'+occurrence['section']+'_'+lang
+                rubric_key = occurrence.get('condition_instruction', {}).get(lang)
+                rubric = readings['documentary_instructions'].get(rubric_key, {})
+                page_start = rubric.get('page_start', False)
+                if page_start.get(lang, False) if isinstance(page_start, dict) else page_start:
+                    attributes = {'ed': '1965', 'facs': page_image_url(
+                        IDENTIFIER, int(rubric['scan'][1:])-1, size='')}
+                    if rubric.get('printed_page') is not None:
+                        attributes['n'] = rubric['printed_page']
+                    element(section, 'pb', **attributes)
                 condition = element(section, 'j:conditional')
                 condition.set(XML+'id', identifier)
-                rubric_key = occurrence.get('condition_instruction', {}).get(lang)
                 if rubric_key:
-                    rubric = readings['documentary_instructions'][rubric_key]
                     note = element(condition, 'note', type='instruction')
                     note.set(XML+'lang', rubric['language'])
                     rubric_words(note, rubric, rubric['language'])
