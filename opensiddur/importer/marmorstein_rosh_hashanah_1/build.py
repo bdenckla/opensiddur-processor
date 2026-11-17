@@ -260,6 +260,7 @@ def unit_document(unit, lang, draft):
             element(paragraph, 'milestone', unit='chapter')
             current_chapter = None
 
+    segment_condition_scopes = []
     for segment_index, segment in enumerate(unit['languages'][lang]):
         if segment.get('transclude'):
             if paragraph is not None:
@@ -278,10 +279,37 @@ def unit_document(unit, lang, draft):
                 paragraph.set(XML+'lang', text_language)
             current_paragraph = identity
         segment_conditions = segment.get('conditions', [])
+        opening_fragment = segment['fragments'][0]
+        if (segment_conditions and opening_fragment['scan'] != current_page
+                and opening_fragment.get('page_start', True)):
+            # A continuation rubric belongs to the new source page too.
+            # Emit its boundary before the conditional's own note.
+            attributes = {'ed': '1965', 'facs': page_image_url(
+                IDENTIFIER, int(opening_fragment['scan'][1:])-1, size='')}
+            if opening_fragment.get('printed_page') is not None:
+                attributes['n'] = opening_fragment['printed_page']
+            element(paragraph, 'pb', **attributes)
+            current_page = opening_fragment['scan']
+        scope_end = segment.get('condition_end_corresp')
+        if scope_end and not segment_conditions:
+            raise ValueError('A condition endpoint requires a condition')
         if segment_conditions:
-            # Conditions select words within a printed paragraph. Keep the
-            # matching end marker in that paragraph, including continuations.
+            # A repeated source rubric can govern the remaining stanzas, across
+            # their independent correspondence boundaries and page breaks.
+            scope_end_index = segment_index
+            if scope_end:
+                matches = [i for i, candidate in enumerate(unit['languages'][lang])
+                           if candidate.get('corresp') == scope_end
+                           and not candidate.get('transclude')]
+                if len(matches) != 1 or matches[0] < segment_index:
+                    raise ValueError('Condition endpoint must identify one current or later segment')
+                scope_end_index = matches[0]
+                if segment.get('marked') and scope_end_index != segment_index:
+                    raise ValueError('Marked source condition must end in its own segment')
+            if segment_condition_scopes and scope_end_index > segment_condition_scopes[-1][0]:
+                raise ValueError('Condition scopes cannot cross')
             segment_condition_id = unit['stem']+'_segment_'+str(segment_index)
+            segment_condition_scopes.append((scope_end_index, segment_condition_id))
             condition = element(paragraph, 'j:conditional', **({'type': 'marked'} if segment.get('marked') else {}))
             condition.set(XML+'id', segment_condition_id)
             if segment.get('condition_instruction'):
@@ -531,8 +559,9 @@ def unit_document(unit, lang, draft):
                 append_words(paragraph, ' ')
         if segment.get('end_reference'):
             close_references()
-        if segment_conditions:
-            element(paragraph, 'j:endConditional', target='#'+segment_condition_id)
+        while segment_condition_scopes and segment_condition_scopes[-1][0] == segment_index:
+            _, condition_id = segment_condition_scopes.pop()
+            element(paragraph, 'j:endConditional', target='#'+condition_id)
         if segment.get('repeat_cue'):
             close_references()
             cue = segment['repeat_cue']
@@ -543,6 +572,8 @@ def unit_document(unit, lang, draft):
             element(note, 'ref', cue['text'], target=cue['target']+'@'+project)
             if cue.get('corresp'):
                 element(paragraph, 'milestone', unit='navigation')
+    if segment_condition_scopes:
+        raise ValueError('Unclosed condition scope')
     if paragraph is not None:
         close_references()
     if conditions:
@@ -576,6 +607,8 @@ def unit_review_text(unit, lang):
             parts.append('[reference ends before rubric; chapter continues]')
         if segment.get('condition_instruction'):
             parts.append(segment['condition_instruction'])
+        if segment.get('condition_end_corresp'):
+            parts.append('[condition through '+segment['condition_end_corresp']+']')
         if segment.get('source_reference_part'):
             parts.append('[quotation '+segment['source']+'; '+
                          segment['source_reference_part']['corresp']+']')

@@ -432,6 +432,66 @@ class EditionWiringTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Marked source condition'):
             self.generate(draft=True)
 
+    def test_continuation_rubric_covers_later_stanzas_and_keeps_nested_scope(self):
+        unit = self.readings['units'][0]
+        condition = [{'type': 'opensiddur:holiday-aggregate', 'features': {'shabbat': True}}]
+        unit['languages']['he'] = [
+            {'corresp': BASE+'invented/1', 'fragments': [{'scan': 's1', 'text': 'Before'}]},
+            {'corresp': BASE+'invented/2', 'conditions': condition,
+             'condition_instruction': 'On Sabbath:',
+             'condition_end_corresp': BASE+'invented/4',
+             'fragments': [{'scan': 's2', 'text': 'Continues'}]},
+            {'corresp': BASE+'invented/3', 'conditions': condition,
+             'fragments': [{'scan': 's2', 'text': 'Nested'}]},
+            {'corresp': BASE+'invented/4', 'fragments': [{'scan': 's3', 'text': 'Ending'}]},
+            {'corresp': BASE+'invented/5', 'fragments': [{'scan': 's3', 'text': 'After'}]},
+        ]
+        self.save('readings', self.readings)
+        self.generate(draft=True)
+        root = etree.parse(str(self.projects/PROJECTS['he']/'first.xml'))
+        paragraph = root.find('.//'+T+'body//'+T+'p')
+        starts = paragraph.findall(J+'conditional')
+        ends = paragraph.findall(J+'endConditional')
+        self.assertEqual(len(starts), 2)
+        continuation_page = paragraph.findall(T+'pb')[1]
+        self.assertLess(paragraph.index(continuation_page), paragraph.index(starts[0]))
+        self.assertEqual(starts[0].find(T+'note').text, 'On Sabbath:')
+        self.assertEqual([n.get('target') for n in ends],
+                         ['#first_segment_2', '#first_segment_1'])
+        last_stanza = paragraph.find(T+'milestone[@corresp="'+BASE+'invented/4"]')
+        after = paragraph.find(T+'milestone[@corresp="'+BASE+'invented/5"]')
+        self.assertLess(paragraph.index(last_stanza), paragraph.index(ends[1]))
+        self.assertLess(paragraph.index(ends[1]), paragraph.index(after))
+        self.assertEqual([n.get('corresp') for n in paragraph.findall(T+'milestone')
+                          if n.get('corresp')], [BASE+'invented/'+str(i) for i in range(1, 6)])
+        self.assertIn('Ending', (last_stanza.tail or ''))
+        original = unit_review_text(unit, 'he')
+        unit['languages']['he'][1]['condition_end_corresp'] = BASE+'invented/3'
+        self.assertNotEqual(original, unit_review_text(unit, 'he'))
+
+    def test_condition_endpoints_reject_missing_backward_and_crossing_scopes(self):
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.build import unit_document
+        condition = [{'type': 'opensiddur:holiday-aggregate', 'features': {'shabbat': True}}]
+        for ending, nested in [('missing', False), ('1', False), ('2', True)]:
+            with self.subTest(ending=ending, nested=nested):
+                unit = {'stem': 'example', 'urn': BASE+'invented', 'title': {'he': 'Example'},
+                        'languages': {'he': [
+                            {'corresp': BASE+'invented/1',
+                             'fragments': [{'scan': 's1', 'text': 'Before'}]},
+                            {'corresp': BASE+'invented/2', 'conditions': condition,
+                             'condition_end_corresp': BASE+'invented/'+ending,
+                             'fragments': [{'scan': 's1', 'text': 'Starts'}]},
+                            {'corresp': BASE+'invented/3',
+                             'fragments': [{'scan': 's1', 'text': 'Ends'}]},
+                        ]}}
+                if nested:
+                    # The outer ends at 2; a nested scope may not outlive it.
+                    unit['languages']['he'][0]['conditions'] = condition
+                    unit['languages']['he'][0]['condition_end_corresp'] = BASE+'invented/2'
+                    unit['languages']['he'][1]['condition_end_corresp'] = BASE+'invented/3'
+                with self.assertRaisesRegex(ValueError, 'Condition endpoint|scopes cannot cross'):
+                    unit_document(unit, 'he', True)
+
     def test_recipient_instruction_is_not_part_of_the_reusable_words(self):
         unit = self.readings['units'][0]
         unit['languages']['he'] = [{'corresp': BASE+'invented/1',
