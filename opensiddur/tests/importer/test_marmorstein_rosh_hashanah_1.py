@@ -740,6 +740,48 @@ class EditionWiringTest(unittest.TestCase):
         fragment['source_reference_part']['corresp'] = BASE+'other/10/b'
         self.assertNotEqual(reviewed, unit_review_text(unit, 'en'))
 
+    def test_partial_quote_inside_marked_condition_keeps_one_scope_and_unquoted_suffix(self):
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.build import unit_document
+        context = BASE+'example/quotation/chapter'
+        quote = {'text': 'Quoted clause.',
+                 'source_reference': 'urn:x-opensiddur:text:bible:psalms/8/10',
+                 'chapter_corresp': context, 'source_reference_corresp': context+'/10'}
+        segment = {'conditions': [{'type': 'opensiddur:rite', 'features': {'metz': False}}],
+                   'marked': True, 'fragments': [{'scan': 's1',
+                       'text': '(Introduction. Quoted clause. Unrelated prayer.)',
+                       'quotations': [quote]}]}
+        unit = {'stem': 'example', 'urn': BASE+'example', 'title': {'en': 'Example'},
+                'languages': {'en': [segment]}}
+        root = unit_document(unit, 'en', draft=True)
+        body = root.find('.//'+T+'body')
+        self.assertEqual(len(body.findall('.//'+J+'conditional')), 1)
+        self.assertEqual(body.find('.//'+J+'conditional').get('type'), 'marked')
+        self.assertEqual(len(body.findall('.//'+J+'endConditional')), 1)
+        quoted = body.find('.//'+T+'seg')
+        self.assertEqual(''.join(quoted.itertext()), 'Quoted clause.')
+        self.assertEqual(quoted.getprevious().get('corresp'), context+'/10')
+        verse_end = quoted.getnext()
+        self.assertEqual(verse_end.get('unit'), 'verse')
+        self.assertIsNone(verse_end.get('corresp'))
+        self.assertEqual(verse_end.getnext().get('unit'), 'chapter')
+        self.assertIn('Unrelated prayer.', verse_end.getnext().tail)
+        self.assertEqual(' '.join(''.join(body.itertext()).split()),
+                         'Introduction. Quoted clause. Unrelated prayer.')
+        before = unit_review_text(unit, 'en')
+        quote['source_reference_corresp'] = context+'/11'
+        self.assertNotEqual(before, unit_review_text(unit, 'en'))
+
+    def test_inline_quotation_rejects_ambiguous_or_overlapping_spans(self):
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.build import quotation_words
+        quotation = {'text': 'Repeated',
+                     'source_reference': 'urn:x-opensiddur:text:bible:psalms/8/10',
+                     'chapter_corresp': BASE+'quote/chapter',
+                     'source_reference_corresp': BASE+'quote/chapter/10'}
+        with self.assertRaisesRegex(ValueError, 'one remaining source span'):
+            quotation_words(etree.Element(T+'p'), 'Repeated Repeated', [quotation], 'en')
+        with self.assertRaisesRegex(ValueError, 'one remaining source span'):
+            quotation_words(etree.Element(T+'p'), 'Repeated', [quotation, quotation], 'en')
+
     def test_uncertain_combining_point_stays_bound_to_the_reviewed_prayer_reading(self):
         from opensiddur.importer.marmorstein_rosh_hashanah_1.build import unit_document
         word = 'הָֽלְכוּ'

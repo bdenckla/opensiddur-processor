@@ -1528,3 +1528,32 @@ leavesareaccepted;34encodedleavesremainunderreview. Allpresentedquestions
 through245aresettled. A new8-witnesssource/guidelinebatchonPDF132–140is
 running,withthecontinuousShabbatalternativeandactualroutingcontextincluded.
 SourceimagesremainoutsideGit;finalPDF/HTMLvisualacceptanceisstillpending.
+
+Completion review after human readings 246–260 restores the missing acrostic
+description, corrects source words and speaker cues in the continuous piyyutim,
+and adds bounded bilingual quotation contexts. Canonical scripture URNs remain
+the `source`; partial quotations use shared occurrence-context chapter/verse
+milestones, with explicit terminators before the surrounding poem resumes.
+The existing `dea_5` context is retained while its source is corrected to
+Psalms 105:8. The passage “זכור אזכרנו עוד” uses Jeremiah 31:20, verified
+against the existing WLC project rather than the reviewer's proposed 31:19.
+
+For a quotation inside a single marked conditional fragment, `quotations`
+records the exact text span, canonical `source_reference`, `chapter_corresp`,
+and `source_reference_corresp`. The importer preserves the condition and its
+source parentheses as one scope, inserts a bounded `seg` and chapter/verse
+milestones inside it, and leaves unrelated words outside the quotation.
+Ambiguous or overlapping spans are errors; quote metadata participates in
+review freshness and registry validation. Both occurrences of Kol Yoshvei
+retain independent context identities while referring to Zechariah 14:9.
+The expanded sequence retains both outer Metz guards and specializes that
+same rite locally inside each guard, avoiding a duplicate imported rubric.
+
+Ten unrendered repeated page-heading records from the former fragmented
+arrangement are retained explicitly as superseded documentary records, with
+their uncertain raw pointing unaccepted. The complete alternate works remain
+governed by the higher-level Shabbat condition and its printed German rubric.
+No source words were deleted from generated output by this reconciliation.
+
+
+Completion review after human readings 246–263 accepts eight additional Hebrew units, the source variant note, and the rendered directives for the continuous weekday/Shabbat alternatives. The corrected block now has explicit internal speaker alternation and 25 bounded bilingual scripture quotation contexts; canonical text identities are reused. All presented questions through263 are settled. The actual compiler passes50 bilingual quotation-extent checks and12 rite/refrain cases, and all646 generated XML files validate. Current acceptance is193 of224 encoded leaves;31 encoded leaves and final PDF/HTML visual acceptance remain. The next seven-unit review around scans136–144 is being triaged. Historical repeated page labels remain preserved, unaccepted as raw pointing, in superseded records.

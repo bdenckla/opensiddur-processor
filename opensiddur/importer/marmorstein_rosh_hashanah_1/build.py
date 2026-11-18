@@ -86,6 +86,26 @@ def words(parent, text, lang):
         append_words(parent, text[end:])
 
 
+def quotation_words(parent, text, quotations, lang):
+    """Bound excerpts inside a fragment without splitting its source condition."""
+    for quotation in quotations:
+        quoted = quotation['text']
+        if not quoted or text.count(quoted) != 1:
+            raise ValueError('Quotation must identify one remaining source span')
+        before, _, text = text.partition(quoted)
+        words(parent, before, lang)
+        source = quotation['source_reference']
+        book, chapter, verse = source.rsplit(':', 1)[-1].split('/')
+        element(parent, 'milestone', unit='chapter', n=chapter,
+                corresp=quotation['chapter_corresp'])
+        element(parent, 'milestone', unit='verse', n=verse,
+                corresp=quotation['source_reference_corresp'])
+        words(element(parent, 'seg', source=source), quoted, lang)
+        element(parent, 'milestone', unit='verse')
+        element(parent, 'milestone', unit='chapter')
+    words(parent, text, lang)
+
+
 def rubric_words(parent, rubric, lang):
     """Keep source abbreviations selectable without losing their printed form."""
     if isinstance(rubric, str):
@@ -483,6 +503,10 @@ def unit_document(unit, lang, draft):
                 if segment.get('source_type'):
                     attributes['type'] = segment['source_type']
                 content = element(paragraph, 'seg', **attributes)
+            if fragment.get('quotations') and any(fragment.get(key) for key in (
+                    'alternatives', 'qere_ketiv', 'expansion', 'abbreviations',
+                    'uncertain_characters', 'enlarged_letters')):
+                raise ValueError('Quotation spans cannot overlap other fragment interpretations')
             if fragment.get('text_type'):
                 content = element(content, 'seg', type=fragment['text_type'])
                 if fragment.get('text_subtype'):
@@ -548,6 +572,8 @@ def unit_document(unit, lang, draft):
                         element(content, 'c', part, rend='large')
                     else:
                         words(content, part, text_language)
+            elif fragment.get('quotations'):
+                quotation_words(content, fragment['text'], fragment['quotations'], text_language)
             else:
                 words(content, fragment['text'], text_language)
             if source_reference and index == len(segment['fragments']) - 1:
@@ -620,6 +646,8 @@ def unit_review_text(unit, lang):
             parts.extend(instruction_review_text(instruction)
                          for instruction in fragment.get('instructions', []))
             parts.append(fragment['text'])
+            parts.extend('[quotation '+json.dumps(quotation, ensure_ascii=False, sort_keys=True)+']'
+                         for quotation in fragment.get('quotations', []))
             if fragment.get('text_type'):
                 parts.append('['+fragment['text_type']+']')
                 if fragment.get('text_subtype'):
@@ -975,6 +1003,10 @@ def build(source, project_directory, *, draft=False):
         identities += [segment['source_reference_part']['corresp']
                        for segments in unit['languages'].values() for segment in segments
                        if segment.get('source_reference_part')]
+        identities += [quotation[key] for segments in unit['languages'].values()
+                       for segment in segments for fragment in segment['fragments']
+                       for quotation in fragment.get('quotations', [])
+                       for key in ('source_reference', 'chapter_corresp', 'source_reference_corresp')]
         for urn in identities:
             # Numeric scripture descendants can be implicit in the registered book.
             if registry.resolve(urn) != urn:
