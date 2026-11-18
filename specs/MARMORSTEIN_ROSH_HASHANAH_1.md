@@ -3,20 +3,7 @@
 Contribution to [issue 214](https://github.com/opensiddur/opensiddur-processor/issues/214).
 The complete project is the 355-leaf Archive item
 `mahzor-lyom-rishon-shel-rosh-hashanah-day-one-jenny-marmorstein-1965`.
-The pilot and six front leaves are complete. Full-volume work proceeds from
-the beginning in scan order, as requested. The opening entrance prayers,
-weekday Minchah, festival preparations and Kabbalat Shabbat through s17
-(printed page 11) have been transcribed and independently reviewed. This is not a complete
-mahzor. Its PRs remain draft while the full-volume transcription is unfinished.
-
-The accepted installment s18–s23 (Archive n17–n22, paired Hebrew and English
-printed pages 12–14) covers Barekhu through Ga’al Yisrael in 19 language files.
-Human source adjudications, enlarged readings and two independent guideline,
-alignment and order audits were followed by acceptance of s24–s25 (printed
-p. 15), Hashkivenu through Half Kaddish, bringing the total to 31 leaves.
-The evening Amidah on s26–s33 is also accepted, bringing the total to 39
-leaves; the next source page is s34 (Archive n33). PR 297 is merged; character-highlighting
-support for the required `tei:c` encoding is isolated in merged exporter PR 298.
+**Current status: all 224 encoded leaves are accepted.** Every current source witness, citation, instruction and Hebrew–English alignment has a current independent review; all presented human questions through 287 are answered. The full volume remains incomplete: 131 of 355 leaves are unencoded. Material reaches PDF scan 223 (plus the previously encoded appendix); the next source scan is 224. The coordinated PRs remain drafts for the continuing volume. Final PDF display verification is being completed in a separate exporter fix; source acceptance does not imply unreviewed renderer approval.
 
 ## Repositories and outputs
 
