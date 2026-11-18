@@ -3,7 +3,7 @@
 Contribution to [issue 214](https://github.com/opensiddur/opensiddur-processor/issues/214).
 The complete project is the 355-leaf Archive item
 `mahzor-lyom-rishon-shel-rosh-hashanah-day-one-jenny-marmorstein-1965`.
-**Current status: all 224 encoded leaves are accepted.** Every current source witness, citation, instruction and Hebrew–English alignment has a current independent review; all presented human questions through 287 are answered. The full volume remains incomplete: 131 of 355 leaves are unencoded. Material reaches PDF scan 223 (plus the previously encoded appendix); the next source scan is 224. The coordinated PRs remain drafts for the continuing volume. Final PDF display verification is being completed in a separate exporter fix; source acceptance does not imply unreviewed renderer approval.
+**Current status: all 224 encoded leaves are accepted.** Every current source witness, citation, instruction and Hebrew–English alignment has a current independent review; all presented human questions through 287 are answered. The full volume remains incomplete: 131 of 355 leaves are unencoded. Material reaches PDF scan 223 (plus the previously encoded appendix); the next source scan is 224. The coordinated PRs remain drafts for the continuing volume. Representative PDF layout and complete link checks pass using separate exporter PR310 (commit ebaf6c5); all three electronic exports pass browser checks. The renderer dependency remains unmerged.
 
 ## Repositories and outputs
 
