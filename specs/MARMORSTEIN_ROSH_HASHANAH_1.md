@@ -1552,3 +1552,33 @@ Completion review through human277 accepts the remaining morning piyyutim, Avinu
 
 
 The next completion checkpoint accepts206 of224 encoded leaves, including the full Genesis21, Numbers29:1–6 and Samuel1:1–2:10 readings, five shofar witnesses, Psalm29 and the cantor four-verse group. Exact enlarged reading adjudication corrected four biblical marks and separated the parashah/aliyah labels in printed order. Ten human questions278–287 are displayed with numbered enlarged snippets and remain pending. Further Torah/return source corrections are preserved as draft material awaiting final review; no source acceptance is inferred from schema validity. All646XMLvalidate and current names/features/URN checks pass. Final PDF/HTML inspection remains outstanding;131 leaves remain unencoded.
+
+
+### Canonical realization and Musaf review closure
+
+PR311 is merged (d324c5a); its managed worktree is archived. The repeated
+Musaf contexts now transclude canonical prayer/Bible identities instead of
+registering edition wording as new prayer identities. Named local wording
+conditions reproduce each printing; Hebrew and English share the expanded
+sequence. Shared homes identify both printings, retain exact source provenance,
+and keep contextual page breaks and rubrics in their own occurrence files.
+
+All660 literal unit witnesses and18 separately hashed realization witnesses
+are independently accepted. Coverage is238 complete leaves, with excerpts on
+240 leaves; PDF238–239 stop before the lower Kedushah. No reading questions
+remain through human323. This is acceptance of encoded scope, not of the
+unencoded remainder of the355-leaf volume.
+
+The independent code and XML audits, including rejected intermediate rounds,
+are retained under sourcetexts `independent/musaf_s224_s239/`. Review hashes
+bind occurrence metadata, canonical selections, the shared expanded order and
+source printings. All676 generated documents schema-validate;106 importer
+tests and57 subtests,38 actual compiler wording/scope/name checks and32
+canonical-home/context checks pass. Naming, feature and registry/reference
+checks are required before publishing the coordinated branch update.
+
+Exporter issues discovered during export review remain isolated: PR310 fixes
+PDF rubric/note layout, PR312 preserves Divine Name semantics through inline
+transclusion, and PR313 preserves each local rubric when its edition wins
+instruction selection. Preview QA uses their combined temporary branch;
+none of these exporter fixes is folded into this digitization change.

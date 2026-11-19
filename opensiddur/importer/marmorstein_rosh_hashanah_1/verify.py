@@ -8,11 +8,13 @@ from opensiddur.importer.scan.review import review_is_current
 from opensiddur.importer.util.internet_archive import write_if_changed
 from . import BOOK
 from .build import unit_review_text, front_text, instruction_review_text
+from .realizations import review_payloads, validate_occurrences
 
 
 def report(source):
     pages = json.loads((source/'pages.json').read_text())['pages']
     readings = json.loads((source/'readings.json').read_text())
+    validate_occurrences(readings)
     reviews_path = source/'reviews.json'
     reviews = json.loads(reviews_path.read_text()) if reviews_path.exists() else {}
     completion_path = source/'page_completion.json'
@@ -51,6 +53,11 @@ def report(source):
             fragments.setdefault(page['scan'], []).append(key)
             if not review_is_current(reviews.get(key, {}), front_text(page)):
                 pending.append(key)
+    for key, payload, scans in review_payloads(readings):
+        for scan in scans:
+            fragments.setdefault(scan, []).append(key)
+        if not review_is_current(reviews.get(key, {}), payload):
+            pending.append(key)
     independently_read = set()
     inventory_scans = {'s'+str(page['scan_page']) for page in pages}
     for path in (source/'independent').rglob('*.json'):

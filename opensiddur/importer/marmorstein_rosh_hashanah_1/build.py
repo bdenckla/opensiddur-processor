@@ -22,6 +22,7 @@ from opensiddur.importer.scan.review import review_is_current
 from opensiddur.importer.util.internet_archive import page_image_url, write_if_changed
 from opensiddur.importer.util.validation import validate
 from . import BOOK, IDENTIFIER, PROJECTS, EXPANDED, ROOT_URN, EXPANDED_URN
+from .realizations import prepare_unit, prepare_documents, selection, review_payloads, validate_occurrences
 
 FRONT_KINDS = ('cover', 'title', 'copyright', 'preface')
 ROLE_LABELS = {'reader': 'חזן', 'congregation': 'קהל',
@@ -200,6 +201,12 @@ def unit_instructions(unit, lang):
 def unit_document(unit, lang, draft):
     project = PROJECTS[lang]
     root, body = document(lang, project, unit['title'][lang], unit_urn(unit), draft=draft)
+    if unit.get('omit_publication_urn'):
+        idno = root.find(f'.//{{{TEI}}}publicationStmt/{{{TEI}}}idno')
+        idno.getparent().remove(idno)
+    title_language = unit.get('title_languages', {}).get(lang)
+    if title_language:
+        root.find(f'.//{{{TEI}}}titleStmt/{{{TEI}}}title').set(XML+'lang', title_language)
     if unit.get('publication_context'):
         body = element(body, 'div', corresp=unit['publication_context'])
     biblical_root = ':bible:' in unit['urn']
@@ -211,11 +218,23 @@ def unit_document(unit, lang, draft):
     if opening.get('printed_page') is not None and last.get('printed_page') is not None:
         element(root.find(f'.//{{{TEI}}}sourceDesc/{{{TEI}}}bibl'), 'biblScope',
                 unit='pages', **{'from': opening['printed_page'], 'to': last['printed_page']})
+    pages = {(opening.get('printed_page'), last.get('printed_page'))}
+    for printing in unit.get('source_printings', {}).get(lang, []):
+        pair = (printing['printed_page'], printing['printed_page'])
+        if pair not in pages:
+            element(root.find(f'.//{{{TEI}}}sourceDesc/{{{TEI}}}bibl'), 'biblScope', unit='pages',
+                    **{'from': pair[0], 'to': pair[1]})
+            pages.add(pair)
     if reuse:
         # A documentary occurrence can reuse an identical earlier witness
         # without registering the canonical prayer a second time.
         element(element(div, 'p'), 'j:transclude', type='inline', target=reuse+'@'+project)
         return root
+    wording = unit.get('wording_selection', [])
+    if wording:
+        declaration = element(div, 'j:declare')
+        declaration.set(XML+'id', unit['stem']+'_wording')
+        feature_structures(declaration, wording)
     conditions = unit.get('conditions', [])
     if unit.get('marked') and not conditions:
         raise ValueError('Marked source unit requires a condition')
@@ -399,6 +418,8 @@ def unit_document(unit, lang, draft):
                 note = element(paragraph, 'note', type=instruction.get('type', 'description'))
                 note.set(XML+'lang', instruction.get('language', lang))
                 rubric_words(note, instruction, instruction.get('language', lang))
+            if segment_index == 0 and index == 0 and unit.get('text_corresp'):
+                element(paragraph, 'milestone', unit='prayer-part', corresp=unit['text_corresp'])
             reference_marker = None
             if index == 0 and segment.get('speaker_before_reference') and segment.get('speaker') and active_reference:
                 element(paragraph, 'milestone', unit=active_reference)
@@ -480,6 +501,15 @@ def unit_document(unit, lang, draft):
                 if segment.get('speaker_before_reference') and reference_marker is not None:
                     paragraph.remove(description)
                     paragraph.insert(paragraph.index(reference_marker), description)
+            if segment.get('canonical'):
+                close_references()
+                attributes = {'target': segment['canonical']+'@'+project}
+                if segment.get('canonical_end'):
+                    attributes['targetEnd'] = segment['canonical_end']
+                element(paragraph, 'j:transclude', type='inline', **attributes)
+                if not fragment.get('join_next'):
+                    append_words(paragraph, ' ')
+                continue
             if segment.get('repeat'):
                 # Repeated recitation reuses the witness; it does not define a
                 # second element with the same canonical identity in one file.
@@ -526,7 +556,21 @@ def unit_document(unit, lang, draft):
                 content = element(content, 'seg', type=fragment['text_type'])
                 if fragment.get('text_subtype'):
                     content.set('subtype', fragment['text_subtype'])
-            if fragment.get('alternatives'):
+            if fragment.get('optional_spans'):
+                text = fragment['text']
+                for number, span in enumerate(fragment['optional_spans']):
+                    before, found, text = text.partition(span['printed'])
+                    if not found:
+                        raise ValueError('Optional word not found in its source fragment')
+                    words(content, before, text_language)
+                    identifier = unit['stem']+'_optional_'+str(segment_index)+'_'+str(index)+'_'+str(number)
+                    condition = element(content, 'j:conditional', type='marked')
+                    condition.set(XML+'id', identifier)
+                    feature_structures(element(condition, 'j:all'), [dict(type='opensiddur:variant', features={span['condition']: True})])
+                    words(content, span['text'], text_language)
+                    element(content, 'j:endConditional', target='#'+identifier)
+                words(content, text, text_language)
+            elif fragment.get('alternatives'):
                 if any(fragment.get(key) for key in ('qere_ketiv', 'expansion', 'abbreviations',
                                                      'uncertain_characters', 'enlarged_letters')):
                     raise ValueError('Alternatives cannot be combined with other fragment readings')
@@ -543,6 +587,9 @@ def unit_document(unit, lang, draft):
                     for reading in readings:
                         option = element(choice, 'j:option')
                         if isinstance(reading, dict):
+                            for attribute in ('corresp','facs'):
+                                if reading.get(attribute):
+                                    option.set(attribute, reading[attribute])
                             if reading.get('quotations'):
                                 if any(reading.get(key) for key in ('abbreviations', 'language_spans', 'uncertain_characters')):
                                     raise ValueError('Quotation option cannot overlap other interpretations')
@@ -601,7 +648,15 @@ def unit_document(unit, lang, draft):
                     element(paragraph, 'milestone', unit=part['unit'])
                 element(paragraph, 'milestone', unit='verse')
                 element(paragraph, 'milestone', unit='chapter')
-            if not fragment.get('join_next') and not fragment['text'].rstrip().endswith('־'):
+            next_fragment = None
+            if unit.get('join_source_fragments'):
+                if index+1 < len(fragments):
+                    next_fragment = fragments[index+1]
+                elif segment_index+1 < len(unit['languages'][lang]):
+                    next_fragment = unit['languages'][lang][segment_index+1]['fragments'][0]
+            owns_separator = (next_fragment and next_fragment['text'] and
+                              (next_fragment['text'][0].isspace() or next_fragment['text'][0] in ',.;:!?)]'))
+            if not owns_separator and not fragment.get('join_next') and not fragment['text'].rstrip().endswith('־'):
                 append_words(paragraph, ' ')
         if segment.get('end_reference'):
             close_references()
@@ -622,8 +677,18 @@ def unit_document(unit, lang, draft):
         raise ValueError('Unclosed condition scope')
     if paragraph is not None:
         close_references()
+    if unit.get('text_corresp'):
+        element(paragraph, 'milestone', unit='prayer-part')
     if conditions:
         element(div, 'j:endConditional', target='#'+unit['stem']+'_condition')
+    if wording:
+        element(div, 'j:endDeclare', target='#'+unit['stem']+'_wording')
+    if unit.get('page_context') or unit.get('canonical_whole') or any(s.get('canonical') for s in unit['languages'][lang]):
+        context = unit.get('page_context') or unit_urn(unit).partition(':siddur:')[2]
+        if not context:
+            raise ValueError('A repeated printing needs its siddur context')
+        for page in div.iter('{'+TEI+'}pb'):
+            page.set('ed', '1965 '+context)
     return root
 
 
@@ -712,6 +777,22 @@ def feature_structures(parent, structures):
                     value=str(value).lower() if isinstance(value, bool) else str(value))
 
 
+def transclude_unit(parent, unit, readings, *, project=None, documentary=False):
+    settings = [] if unit.get('canonical_home') else selection(readings, unit['stem'])
+    if settings:
+        index = len(parent.getroottree().xpath('//*[local-name()="declare"]'))
+        identifier = unit['stem']+'_printed_wording_'+str(index)
+        declaration = element(parent, 'j:declare')
+        declaration.set(XML+'id', identifier)
+        feature_structures(declaration, settings)
+    attributes = {'target': unit_urn(unit)} if documentary else reference(unit)
+    if project:
+        attributes['target'] += '@'+project
+    element(parent, 'j:transclude', type='external', **attributes)
+    if settings:
+        element(parent, 'j:endDeclare', target='#'+identifier)
+
+
 def expanded_order(parent, order, readings, by_stem):
     """Keep service choices local while sharing one sequence across languages."""
     for occurrence in order:
@@ -781,7 +862,7 @@ def expanded_order(parent, order, readings, by_stem):
         elif 'reference' in occurrence:
             element(parent, 'j:transclude', type='external', **occurrence['reference'])
         else:
-            element(parent, 'j:transclude', type='external', **reference(by_stem[occurrence['unit']]))
+            transclude_unit(parent, by_stem[occurrence['unit']], readings)
 
 
 def front_text(page):
@@ -862,6 +943,9 @@ def add_front(root, pages, *, expanded=False):
 
 
 def require_review(readings, reviews):
+    for key, payload, _ in review_payloads(readings):
+        if not review_is_current(reviews.get(key, {}), payload):
+            raise ValueError('Independent canonical realization review pending or stale: '+key)
     for unit in readings['units']:
         for lang in unit['languages']:
             review = reviews.get(unit['stem']+'/'+lang, {})
@@ -990,11 +1074,13 @@ def documentary_order(div, order, readings, by_stem, lang, project):
         else:
             unit = by_stem[occurrence['unit']]
             if lang in unit['languages']:
-                element(div, 'j:transclude', type='external', target=unit_urn(unit)+'@'+project)
+                transclude_unit(div, unit, readings, project=project, documentary=True)
 
 
 def build(source, project_directory, *, draft=False):
     readings = json.loads((source/'readings.json').read_text())
+    validate_occurrences(readings)
+    realization_payloads = {key: payload for key, payload, _ in review_payloads(readings)}
     reviews_path = source/'reviews.json'
     reviews = json.loads(reviews_path.read_text()) if reviews_path.exists() else {}
     front_path = source/'front.json'
@@ -1012,6 +1098,11 @@ def build(source, project_directory, *, draft=False):
         identities = [unit['urn']] + [s[key] for segments in unit['languages'].values()
                                      for s in segments for key in ('corresp', 'source', 'source_reference',
                                          'source_reference_corresp', 'chapter_corresp', 'transclude', 'repeat') if s.get(key)]
+        for segments in unit['languages'].values():
+            for segment in segments:
+                identities.extend(segment[key] for key in ('canonical', 'canonical_end') if segment.get(key))
+        identities.extend(unit[key] for key in ('canonical_whole', 'text_corresp') if unit.get(key))
+        identities.extend(unit.get('canonical_home', {})[key] for key in ('urn','text_corresp') if unit.get('canonical_home', {}).get(key))
         if unit.get('publication_context'):
             identities.append(unit['publication_context'])
         identities.extend(unit.get('reuse', {}).values())
@@ -1040,6 +1131,29 @@ def build(source, project_directory, *, draft=False):
             parsed = parse_urn(urn)
             if parsed.governed and urn not in registry.records and str(parsed.without_numeric_tail()) not in registry.records:
                 raise ValueError(f'Unregistered identity: {urn}')
+    def urn_strings(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key.startswith('urn:x-opensiddur:'):
+                    yield key
+                yield from urn_strings(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from urn_strings(child)
+        elif isinstance(value, str) and value.startswith('urn:x-opensiddur:'):
+            from opensiddur.exporter.urn import split_range
+            start, end = split_range(value.partition('@')[0]) or (value.partition('@')[0], None)
+            yield start
+            if end:
+                yield end
+    for urn in set(urn_strings(readings.get('wording_variants', []))) | set(urn_strings(readings.get('source_order', []))) | set(urn_strings(readings.get('expanded_order', []))) | {
+            urn for unit in readings['units'] for key in ('wording_selection','conditions','citations')
+            for urn in urn_strings(unit.get(key, []))}:
+        parsed = parse_urn(urn)
+        if registry.resolve(urn) != urn:
+            raise ValueError('Use canonical identity: '+urn)
+        if parsed.governed and urn not in registry.records and str(parsed.without_numeric_tail()) not in registry.records:
+            raise ValueError('Unregistered realization identity: '+urn)
     documents = []
     def service_sections(order):
         for occurrence in order:
@@ -1074,8 +1188,15 @@ def build(source, project_directory, *, draft=False):
             if lang in unit['languages']:
                 pending = not review_is_current(reviews.get(unit['stem']+'/'+lang, {}),
                                                 unit_review_text(unit, lang))
+                realization_key = 'realization/'+unit['stem']+'/'+lang
+                if realization_key in realization_payloads:
+                    pending = pending or any(not review_is_current(reviews.get(key, {}), payload) for key, payload in realization_payloads.items())
+                context_unit, home_unit = prepare_documents(unit, readings)
                 documents.append((project_directory/project/(unit['stem']+'.xml'),
-                                  unit_document(unit, lang, draft and pending)))
+                                  unit_document(context_unit, lang, draft and pending)))
+                if home_unit is not None:
+                    documents.append((project_directory/project/(unit['canonical_home']['file']+'.xml'),
+                                      unit_document(home_unit, lang, draft and pending)))
         documents.append((project_directory/project/'index.xml', root))
     root, body = document('he', EXPANDED, 'Expanded Ashkenazi Mahzor', EXPANDED_URN, index=True, draft=draft)
     for dependency in readings.get('dependencies', []):
@@ -1098,7 +1219,12 @@ def build(source, project_directory, *, draft=False):
     corrections = source/'corrections.json'
     if corrections.exists():
         by_path = {f'{path.parent.name}/{path.name}': root for path, root in documents}
-        apply_corrections(by_path, json.loads(corrections.read_text())['corrections'])
+        correction_items = json.loads(corrections.read_text())['corrections']
+        guarded_stems = {key.split('/')[1] for key in realization_payloads}
+        guarded_stems.update(u['canonical_home']['file'] for u in readings['units'] if u.get('canonical_home'))
+        if any(Path(c['file']).stem in guarded_stems for c in correction_items):
+            raise ValueError('Canonical realization corrections must be part of its reviewed source data')
+        apply_corrections(by_path, correction_items)
     # A language witness removed from the readings must not remain discoverable
     # through refdb merely because an earlier build wrote its file.
     obsolete = [project_directory/project/(unit['stem']+'.xml')
@@ -1108,7 +1234,25 @@ def build(source, project_directory, *, draft=False):
                  for lang, project in PROJECTS.items()
                  for section in service_sections(readings.get('source_order', []))
                  if lang not in section.get('witnesses', PROJECTS)]
+    from .realizations import validate_generated
+    validate_generated(documents, readings)
+    paths_to_write = [path for path, _ in documents]
+    if len(paths_to_write) != len(set(paths_to_write)):
+        raise ValueError('Generated canonical home collides with another project file')
+    home_manifest = source/'canonical_homes_manifest.json'
+    current_homes = sorted(str((project_directory/project/(unit['canonical_home']['file']+'.xml')).relative_to(project_directory))
+                           for project in PROJECTS.values() for unit in readings['units']
+                           if unit.get('canonical_home') and project.rsplit('-',1)[-1] in unit['languages'])
+    previous_homes = json.loads(home_manifest.read_text()) if home_manifest.exists() else []
+    for relative in previous_homes:
+        path = Path(relative)
+        if len(path.parts) != 2 or path.parts[0] not in PROJECTS.values() or not re.fullmatch(r'[a-z0-9_]+\.xml',path.name) or path.name == 'index.xml':
+            raise ValueError('Invalid prior canonical home path')
+        candidate = project_directory/path
+        if candidate not in paths_to_write:
+            obsolete.append(candidate)
     paths = write_documents(documents, validator=validate, obsolete_paths=obsolete)
+    write_if_changed(home_manifest, json.dumps(current_homes, indent=2)+'\n')
     settings_directory = project_directory.parent/'settings'
     for project, variant, parallel in [(PROJECTS['he'], 'documentary', False),
                                        (PROJECTS['he'], 'with_translation', True),

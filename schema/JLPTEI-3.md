@@ -875,7 +875,9 @@ Two types of inclusions are supported. The intended type is indicated by the `ty
 * `external` (the default, when `type` is absent): The text and its XML hierarchy are to be included in place.
 * `inline`: The text is to be included in place. Any XML hierarchy (including paragraphs, line groups, etc)
   within the included text are excluded. Where the included text gives two readings of a word in a `tei:choice`,
-  only one is included: the `j:read` (qere), or the first `j:option`.
+  only one is included: the `j:read` (qere), or the `j:option` selected by a decided
+  `opensiddur:variant` setting. When no wording is decided, the first remaining option
+  is the inline fallback. A known false option is excluded before choosing that fallback.
 
 `target` attributes may reference ranges, such as `urn:x-opensiddur:text:bible:genesis/1/1-1/3`, as long as both ends are
 in one file and the end does not come before the start; the compiler reports either error. A range may start and end
