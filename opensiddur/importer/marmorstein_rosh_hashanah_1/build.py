@@ -96,11 +96,24 @@ def quotation_words(parent, text, quotations, lang):
         words(parent, before, lang)
         source = quotation['source_reference']
         book, chapter, verse = source.rsplit(':', 1)[-1].split('/')
+        part = quotation.get('source_reference_part')
+        if part:
+            if (part.get('unit') != 'half-verse' or part.get('n') not in ('a', 'b')
+                    or part.get('corresp') != source+'/'+part['n']):
+                raise ValueError('Quotation half-verse must identify its canonical verse part')
+            if quotation.get('chapter_corresp') or quotation.get('source_reference_corresp'):
+                raise ValueError('A partial quotation must not map the whole chapter or verse')
+        elif not quotation.get('chapter_corresp') or not quotation.get('source_reference_corresp'):
+            raise ValueError('Quotation requires chapter and verse correspondences or a canonical half-verse')
         element(parent, 'milestone', unit='chapter', n=chapter,
-                corresp=quotation['chapter_corresp'])
+                **({'corresp': quotation['chapter_corresp']} if quotation.get('chapter_corresp') else {}))
         element(parent, 'milestone', unit='verse', n=verse,
-                corresp=quotation['source_reference_corresp'])
+                **({'corresp': quotation['source_reference_corresp']} if quotation.get('source_reference_corresp') else {}))
+        if part:
+            element(parent, 'milestone', **part)
         words(element(parent, 'seg', source=source), quoted, lang)
+        if part:
+            element(parent, 'milestone', unit=part['unit'])
         element(parent, 'milestone', unit='verse')
         element(parent, 'milestone', unit='chapter')
     words(parent, text, lang)
@@ -162,6 +175,8 @@ def instruction_review_text(instruction):
                  for span in instruction.get('language_spans', []))
     parts.extend(item['word']+' [uncertain '+item['character']+'; cert=low]'
                  for item in instruction.get('uncertain_characters', []))
+    parts.extend('[quotation '+json.dumps(quotation, ensure_ascii=False, sort_keys=True)+']'
+                 for quotation in instruction.get('quotations', []))
     return ' '.join(parts)
 
 
@@ -528,7 +543,12 @@ def unit_document(unit, lang, draft):
                     for reading in readings:
                         option = element(choice, 'j:option')
                         if isinstance(reading, dict):
-                            rubric_words(option, reading, text_language)
+                            if reading.get('quotations'):
+                                if any(reading.get(key) for key in ('abbreviations', 'language_spans', 'uncertain_characters')):
+                                    raise ValueError('Quotation option cannot overlap other interpretations')
+                                quotation_words(option, reading['text'], reading['quotations'], text_language)
+                            else:
+                                rubric_words(option, reading, text_language)
                         else:
                             words(option, reading, text_language)
                 words(content, text, text_language)
@@ -1003,10 +1023,16 @@ def build(source, project_directory, *, draft=False):
         identities += [segment['source_reference_part']['corresp']
                        for segments in unit['languages'].values() for segment in segments
                        if segment.get('source_reference_part')]
-        identities += [quotation[key] for segments in unit['languages'].values()
-                       for segment in segments for fragment in segment['fragments']
-                       for quotation in fragment.get('quotations', [])
-                       for key in ('source_reference', 'chapter_corresp', 'source_reference_corresp')]
+        quotations = [quotation for segments in unit['languages'].values()
+                      for segment in segments for fragment in segment['fragments']
+                      for owner in [fragment]+[reading for alternative in fragment.get('alternatives', [])
+                                               for reading in alternative['readings'] if isinstance(reading, dict)]
+                      for quotation in owner.get('quotations', [])]
+        identities += [quotation[key] for quotation in quotations
+                       for key in ('source_reference', 'chapter_corresp', 'source_reference_corresp')
+                       if quotation.get(key)]
+        identities += [quotation['source_reference_part']['corresp'] for quotation in quotations
+                       if quotation.get('source_reference_part')]
         for urn in identities:
             # Numeric scripture descendants can be implicit in the registered book.
             if registry.resolve(urn) != urn:

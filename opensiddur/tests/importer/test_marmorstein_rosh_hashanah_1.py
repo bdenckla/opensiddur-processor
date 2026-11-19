@@ -782,6 +782,40 @@ class EditionWiringTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'one remaining source span'):
             quotation_words(etree.Element(T+'p'), 'Repeated', [quotation, quotation], 'en')
 
+    def test_half_verse_quote_maps_only_the_excerpt_and_ends_before_suffix(self):
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.build import quotation_words
+        verse = 'urn:x-opensiddur:text:bible:isaiah/26/8'
+        quote = {'text': 'Quoted clause', 'source_reference': verse,
+                 'source_reference_part': {'unit': 'half-verse', 'n': 'a', 'corresp': verse+'/a'}}
+        parent = etree.Element(T+'p')
+        quotation_words(parent, 'Introduction Quoted clause unrelated words', [quote], 'en')
+        self.assertEqual([e.get('corresp') for e in parent.findall(T+'milestone')],
+                         [None, None, verse+'/a', None, None, None])
+        end = parent.find(T+'seg').getnext()
+        self.assertEqual(end.get('unit'), 'half-verse')
+        self.assertIn('unrelated words', parent[-1].tail)
+        quote['source_reference_corresp'] = verse
+        with self.assertRaisesRegex(ValueError, 'must not map the whole'):
+            quotation_words(etree.Element(T+'p'), 'Quoted clause', [quote], 'en')
+
+    def test_variant_quote_only_maps_its_biblical_option_and_is_reviewed(self):
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.build import unit_document
+        verse = 'urn:x-opensiddur:text:bible:deuteronomy/33/5'
+        quote = {'text': 'Quoted clause', 'source_reference': verse,
+                 'source_reference_part': {'unit': 'half-verse', 'n': 'a', 'corresp': verse+'/a'}}
+        fragment = {'scan': 's1', 'text': 'Intro Quoted clause (Variant)', 'alternatives': [{
+            'printed': 'Quoted clause (Variant)', 'readings': [
+                {'text': 'Quoted clause', 'quotations': [quote]}, 'Variant']}]}
+        unit = {'stem': 'example', 'urn': BASE+'example', 'title': {'en': 'Example'},
+                'languages': {'en': [{'fragments': [fragment]}]}}
+        root = unit_document(unit, 'en', draft=True)
+        options = root.findall('.//'+J+'option')
+        self.assertEqual(options[0].find(T+'milestone[@unit="half-verse"]').get('corresp'), verse+'/a')
+        self.assertIsNone(options[1].find(T+'milestone'))
+        baseline = unit_review_text(unit, 'en')
+        quote['source_reference_part']['n'] = 'b'
+        self.assertNotEqual(baseline, unit_review_text(unit, 'en'))
+
     def test_uncertain_combining_point_stays_bound_to_the_reviewed_prayer_reading(self):
         from opensiddur.importer.marmorstein_rosh_hashanah_1.build import unit_document
         word = 'הָֽלְכוּ'
