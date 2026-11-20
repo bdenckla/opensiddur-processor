@@ -66,7 +66,7 @@ class EditionWiringTest(unittest.TestCase):
             'expanded_order': [{'navigation': 'return'}, {'unit': 'second'}]}
         self.save('readings', self.readings)
         registry = Mock()
-        registry.records = {BASE+'invented': {}, BASE+'another': {}}
+        registry.records = {BASE+'invented': {}, BASE+'another': {}, BASE+'context': {}, BASE+'service': {}}
         registry.resolve.side_effect = lambda urn: urn
         self.registry_mock = registry
         self.registry = patch('opensiddur.importer.marmorstein_rosh_hashanah_1.build.load_registry',
@@ -605,7 +605,7 @@ class EditionWiringTest(unittest.TestCase):
     def test_untranslated_service_file_and_reference_are_absent_in_english(self):
         self.readings['documentary_instructions'] = {}
         self.readings['source_order'] = [{'section': 'offerings', 'file': 'offerings',
-            'corresp': BASE+'another', 'heading': None, 'witnesses': ['he'],
+            'corresp': BASE+'service', 'heading': None, 'witnesses': ['he'],
             'titles': {'he': 'קרבנות', 'en': 'Offerings'}, 'order': [{'unit': 'second'}]}]
         self.save('readings', self.readings)
         stale = self.projects/PROJECTS['en']/'offerings.xml'
@@ -616,7 +616,7 @@ class EditionWiringTest(unittest.TestCase):
         self.assertFalse(stale.exists())
         he = etree.parse(str(self.projects/PROJECTS['he']/'index.xml'))
         en = etree.parse(str(self.projects/PROJECTS['en']/'index.xml'))
-        self.assertEqual(he.find('.//'+J+'transclude').get('target'), BASE+'another@'+PROJECTS['he'])
+        self.assertEqual(he.find('.//'+J+'transclude').get('target'), BASE+'service@'+PROJECTS['he'])
         self.assertFalse(en.findall('.//'+J+'transclude'))
 
     def test_uncertain_character_keeps_exact_words_and_the_language_span(self):
@@ -636,6 +636,17 @@ class EditionWiringTest(unittest.TestCase):
         plain.pop('uncertain_characters')
         self.assertNotEqual(reading_hash(instruction_review_text(rubric)),
                             reading_hash(instruction_review_text(plain)))
+
+    def test_source_actor_rubric_correspondence_is_encoded_and_reviewed(self):
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.build import rubric_words, instruction_review_text
+        rubric={'text':'ק׳','abbreviations':[{'abbr':'ק׳','expan':'קהל'}],
+                'corresp':'urn:x-opensiddur:instruction:role/congregation'}
+        note=etree.Element(T+'note')
+        rubric_words(note,rubric,'he')
+        self.assertEqual(note.get('corresp'),rubric['corresp'])
+        original=instruction_review_text(rubric)
+        rubric['corresp']='urn:x-opensiddur:instruction:role/reader'
+        self.assertNotEqual(original,instruction_review_text(rubric))
 
     def test_documentary_ranges_preserve_a_missing_translation_between_neighbors(self):
         self.readings['source_order'] = [
@@ -771,6 +782,29 @@ class EditionWiringTest(unittest.TestCase):
         quote['source_reference_corresp'] = context+'/11'
         self.assertNotEqual(before, unit_review_text(unit, 'en'))
 
+    def test_inline_scope_keeps_quotation_milestones_within_its_bounded_span(self):
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.build import quotation_words
+        parent=etree.Element(T+'p');context=BASE+'example/quotations/exodus_3'
+        quote=dict(text='I am that I am',source_reference='urn:x-opensiddur:text:bible:exodus/3/14',
+                   chapter_corresp=context,source_reference_corresp=context+'/14',inline_scope=True)
+        quotation_words(parent,'He is thought of as I am that I am. All believe.',[quote],'en')
+        span=parent.find(T+'seg')
+        self.assertEqual(span.get('type'),'quotation')
+        self.assertFalse(parent.findall(T+'milestone'))
+        self.assertEqual(span.xpath('.//*[@n]/@n'),['3','14'])
+        self.assertEqual([m.get('corresp')for m in span.findall(T+'milestone')],
+                         [context,context+'/14',None,None])
+        self.assertEqual(''.join(span.itertext()),'I am that I am')
+        self.assertEqual(parent.text,'He is thought of as ')
+        self.assertEqual(span.tail,'. All believe.')
+        quote['inline_scope']='yes'
+        with self.assertRaisesRegex(ValueError,'explicitly boolean'):
+            quotation_words(etree.Element(T+'p'),'I am that I am',[quote],'en')
+        quote['inline_scope']=True
+        quote['source_reference_part']={'unit':'half-verse','n':'a','corresp':quote['source_reference']+'/a'}
+        with self.assertRaisesRegex(ValueError,'does not support a subverse part'):
+            quotation_words(etree.Element(T+'p'),'I am that I am',[quote],'en')
+
     def test_inline_quotation_rejects_ambiguous_or_overlapping_spans(self):
         from opensiddur.importer.marmorstein_rosh_hashanah_1.build import quotation_words
         quotation = {'text': 'Repeated',
@@ -816,6 +850,65 @@ class EditionWiringTest(unittest.TestCase):
         quote['source_reference_part']['n'] = 'b'
         self.assertNotEqual(baseline, unit_review_text(unit, 'en'))
 
+    def test_page_start_inside_optional_clause_can_be_deferred_once(self):
+        from copy import deepcopy
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.build import unit_document
+        unit = {'stem': 'example', 'urn': BASE+'example', 'title': {'en': 'Example'},
+                'languages': {'en': [
+                    {'fragments': [{'scan': 's1', 'printed_page': '1', 'text': 'Start'}]},
+                    {'conditions': [{'type': 'opensiddur:rite', 'features': {'frankfurt': True}}],
+                     'marked': True, 'fragments': [
+                         {'scan': 's1', 'text': '(Optional', 'page_start': False},
+                         {'scan': 's2', 'printed_page': '2', 'text': 'clause)', 'page_start': False}]},
+                    {'deferred_page_boundary': True, 'fragments': [
+                        {'scan': 's2', 'printed_page': '2', 'text': 'Continuation', 'page_start': False}]}]}}
+        root = unit_document(unit, 'en', draft=True)
+        pages = root.findall('.//'+T+'pb')
+        self.assertEqual([p.get('n') for p in pages], ['1', '2'])
+        self.assertTrue(pages[-1].get('facs').endswith('/page/n1.jpg'))
+        siblings = list(pages[-1].getparent())
+        self.assertLess(next(i for i,v in enumerate(siblings) if v.tag == J+'endConditional'), siblings.index(pages[-1]))
+        reviewed=unit_review_text(unit,'en')
+        no_flag=deepcopy(unit)
+        no_flag['languages']['en'][2].pop('deferred_page_boundary')
+        self.assertNotEqual(reviewed,unit_review_text(no_flag,'en'))
+        for mutation in ['mid_page','intervening_unconditional','wrong_page','wrong_label','non_true']:
+            with self.subTest(mutation=mutation):
+                broken=deepcopy(unit);segments=broken['languages']['en']
+                if mutation=='mid_page':
+                    segments[0]['fragments'][0].update(scan='s2',page_start=False)
+                    segments[1]['fragments'].pop(0)
+                    segments[1]['fragments'][0]['text']='(clause)'
+                elif mutation=='intervening_unconditional':
+                    segments.insert(2,{'fragments':[{'scan':'s2','printed_page':'2','text':'Intervening','page_start':False}]})
+                elif mutation=='wrong_page':segments[2]['fragments'][0]['scan']='s3'
+                elif mutation=='wrong_label':segments[2]['fragments'][0]['printed_page']='9'
+                else:segments[2]['deferred_page_boundary']='yes'
+                with self.assertRaisesRegex(ValueError,'Deferred page boundary'):
+                    unit_document(broken,'en',draft=True)
+        broken = deepcopy(unit)
+        broken['languages']['en'][1]['fragments'][1]['page_start'] = True
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            unit_document(broken, 'en', draft=True)
+        broken = deepcopy(unit)
+        broken['languages']['en'][2]['conditions'] = broken['languages']['en'][1]['conditions']
+        with self.assertRaisesRegex(ValueError, 'unconditional'):
+            unit_document(broken, 'en', draft=True)
+        broken = deepcopy(unit)
+        broken['languages']['en'].append(deepcopy(broken['languages']['en'][2]))
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            unit_document(broken, 'en', draft=True)
+
+    def test_build_requires_a_contained_baseline_for_canonical_integration(self):
+        self.readings['units'][0]['canonical_parts']=True
+        self.save('readings',self.readings)
+        with self.assertRaisesRegex(ValueError,'accepted literal baseline'):
+            self.generate(draft=True)
+        self.readings['accepted_literal_baseline']='../outside.json'
+        self.save('readings',self.readings)
+        with self.assertRaisesRegex(ValueError,'inside the source book'):
+            self.generate(draft=True)
+
     def test_uncertain_combining_point_stays_bound_to_the_reviewed_prayer_reading(self):
         from opensiddur.importer.marmorstein_rosh_hashanah_1.build import unit_document
         word = 'הָֽלְכוּ'
@@ -858,7 +951,7 @@ class EditionWiringTest(unittest.TestCase):
                    'witnesses': [lang], 'scan': 's1', 'printed_page': '1'}
             for lang in ['he', 'en']}
         self.readings['source_order'] = [{'unit': 'second'},
-            {'section': 'service', 'file': 'service', 'corresp': BASE+'another',
+            {'section': 'service', 'file': 'service', 'corresp': BASE+'service',
              'heading': {'he': 'he', 'en': 'en'}, 'order': [{'unit': 'first'}]}]
         self.save('readings', self.readings)
         self.generate(draft=True)
@@ -866,35 +959,35 @@ class EditionWiringTest(unittest.TestCase):
             index = etree.parse(str(self.projects/project/'index.xml'))
             self.assertFalse(index.findall('.//'+T+'body//'+T+'head'))
             targets = [x.get('target') for x in index.findall('.//'+J+'transclude')]
-            self.assertEqual(targets[-1], BASE+'another@'+project)
+            self.assertEqual(targets[-1], BASE+'service@'+project)
             service = etree.parse(str(self.projects/project/'service.xml'))
             self.assertEqual(service.find('.//'+T+'body//'+T+'head').text, 'Service heading')
             self.assertEqual(service.find('.//'+J+'transclude').get('target'), BASE+'invented@'+project)
 
     def test_documentary_occurrence_retains_the_canonical_prayer_identity(self):
         unit = self.readings['units'][0]
-        unit['publication_context'] = BASE+'another'
+        unit['publication_context'] = BASE+'context'
         self.save('readings', self.readings)
         self.generate(draft=True)
         doc = etree.parse(str(self.projects/PROJECTS['he']/'first.xml'))
         context = doc.find('.//'+T+'body/'+T+'div')
-        self.assertEqual(context.get('corresp'), BASE+'another')
+        self.assertEqual(context.get('corresp'), BASE+'context')
         self.assertEqual(context.find(T+'div').get('corresp'), BASE+'invented')
         index = etree.parse(str(self.projects/PROJECTS['he']/'index.xml'))
-        self.assertEqual(index.find('.//'+J+'transclude').get('target'), BASE+'another@'+PROJECTS['he'])
+        self.assertEqual(index.find('.//'+J+'transclude').get('target'), BASE+'context@'+PROJECTS['he'])
         expanded = etree.parse(str(self.projects/EXPANDED/'index.xml'))
         self.assertEqual(expanded.find('.//'+J+'transclude').get('target'), BASE+'invented')
 
     def test_reused_occurrence_does_not_declare_the_canonical_prayer_twice(self):
         unit = self.readings['units'][0]
-        unit['publication_context'] = BASE+'another'
+        unit['publication_context'] = BASE+'context'
         unit['reuse'] = {'he': BASE+'invented'}
         self.save('readings', self.readings)
         self.generate(draft=True)
         doc = etree.parse(str(self.projects/PROJECTS['he']/'first.xml'))
         self.assertFalse(doc.findall('.//*[@corresp="'+BASE+'invented"]'))
         self.assertEqual(doc.find('.//'+J+'transclude').get('target'), BASE+'invented@'+PROJECTS['he'])
-        self.assertEqual(doc.find('.//'+T+'body/'+T+'div').get('corresp'), BASE+'another')
+        self.assertEqual(doc.find('.//'+T+'body/'+T+'div').get('corresp'), BASE+'context')
 
     def test_poetic_lines_are_independent_of_the_translation_paragraph(self):
         unit = self.readings['units'][0]

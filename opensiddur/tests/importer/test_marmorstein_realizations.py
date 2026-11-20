@@ -81,9 +81,8 @@ class RealizationTest(unittest.TestCase):
         r=fixture();before=unit_review_text(r['units'][1],'en');payloads=dict((k,v)for k,v,_ in review_payloads(r))
         r['units'][1]['languages']['en'][0]['canonical']=P+'/other'
         self.assertEqual(unit_review_text(r['units'][1],'en'),before)
-        after=dict((k,v)for k,v,_ in review_payloads(r))
-        self.assertNotEqual(payloads['realization/occurrence/en'],after['realization/occurrence/en'])
-        with self.assertRaisesRegex(ValueError,'canonical realization'):require_review(r,{})
+        with self.assertRaisesRegex(ValueError,'one host'):
+            list(review_payloads(r))
         r=fixture();before=dict((k,v)for k,v,_ in review_payloads(r))
         r['units'][0]['citations']={'en':[dict(text='comment',scan='s2',conditions=[dict(type='opensiddur:variant',features={A:True})])]}
         self.assertNotEqual(before['realization/host/en'],dict((k,v)for k,v,_ in review_payloads(r))['realization/host/en'])
@@ -171,7 +170,8 @@ class RealizationTest(unittest.TestCase):
 
     def test_canonical_home_rejects_context_controls_and_suppresses_old_pb(self):
         r=fixture();u=r['units'][0]
-        u['canonical_home']=dict(file='home',urn=P,title={'en':'Canonical words'},map_root=False)
+        u['canonical_home']=dict(file='home',urn=P,title={'en':'Canonical words'},map_root=False,
+                                 context_urn='urn:x-opensiddur:text:siddur:example/context')
         context,home=prepare_documents(u,r)
         self.assertFalse(unit_document(home,'en',True).xpath('//tei:pb',namespaces=NS))
         self.assertEqual(home['title'],{'en':'Canonical words'})
@@ -179,6 +179,86 @@ class RealizationTest(unittest.TestCase):
             with self.subTest(key=key):
                 altered=deepcopy(u);altered[key]='forbidden'
                 with self.assertRaises(ValueError):prepare_documents(altered,r)
+
+    def test_pure_parts_require_attestations_and_never_become_a_service(self):
+        r=fixture();host,caller=r['units'];host['canonical_parts']=True
+        caller['wording_selection']=selection(r,'host')
+        caller['languages']['en'][0]['fragments']=deepcopy(host['languages']['en'][0]['fragments'])
+        validate_occurrences(r)
+        root=unit_document(prepare_unit(host,r),'en',True)
+        self.assertFalse(root.xpath('//tei:pb | //tei:div[@corresp]',namespaces=NS))
+        self.assertIn('realization/host/en',dict((k,v)for k,v,_ in review_payloads(r)))
+        for mutation in ['no_attestation','speaker','unit_condition','order','range']:
+            with self.subTest(mutation=mutation):
+                altered=deepcopy(r)
+                if mutation=='no_attestation':altered['units']=altered['units'][:1]
+                elif mutation=='speaker':altered['units'][0]['languages']['en'][0]['speaker']={'label':'Reader'}
+                elif mutation=='unit_condition':altered['units'][0]['conditions']=[]
+                elif mutation=='order':altered['expanded_order']=[{'section':'x','order':[{'unit':'host'}]}]
+                else:altered['units'][1]['languages']['en'][0]['canonical_end']=P+'/part'
+                with self.assertRaises(ValueError):validate_occurrences(altered)
+
+    def test_caller_fidelity_payload_binds_resolved_source_words(self):
+        r=fixture();before=dict((k,v)for k,v,_ in review_payloads(r))
+        r['wording_variants'][0]['readings'][1]['text']='for always'
+        after=dict((k,v)for k,v,_ in review_payloads(r))
+        self.assertNotEqual(before['realization/occurrence/en'],after['realization/occurrence/en'])
+
+    def test_literal_home_preserves_page_break_and_scopes_overlay_to_one_fragment(self):
+        r=fixture();host,caller=r['units'];segment=host['languages']['en'][0]
+        original=deepcopy(segment['fragments'][0]);segment['fragments'][0]['text']='prefix'
+        segment['fragments'].append(dict(original,scan='s3',printed_page='2'))
+        host['canonical_home']=dict(file='home',urn=P,title={'en':'Example'},map_root=False,
+                                   context='literal',context_urn='urn:x-opensiddur:text:siddur:example/context')
+        r['wording_variants'][0]['fragment']=1
+        caller['languages']['en'][0]['fragments'][0]['text']='prefix forever'
+        validate_occurrences(r)
+        context,home=prepare_documents(host,r)
+        self.assertFalse(context['map_root'])
+        self.assertEqual(context['wording_selection'],[])
+        self.assertEqual([f['text']for f in context['languages']['en'][0]['fragments']],['prefix','for ever'])
+        self.assertEqual(len(unit_document(context,'en',True).xpath('//tei:pb',namespaces=NS)),2)
+        self.assertFalse(unit_document(home,'en',True).xpath('//tei:pb',namespaces=NS))
+        self.assertIn('alternatives',home['languages']['en'][0]['fragments'][1])
+        self.assertNotIn('alternatives',home['languages']['en'][0]['fragments'][0])
+        for mutation in ['index','no_context','span_across_join','single_page','same_scan_default']:
+            with self.subTest(mutation=mutation):
+                altered=deepcopy(r)
+                if mutation=='index':del altered['wording_variants'][0]['fragment']
+                elif mutation=='no_context':del altered['units'][0]['canonical_home']['context']
+                elif mutation=='span_across_join':altered['wording_variants'][0]['printed']='prefix for ever'
+                elif mutation=='same_scan_default':
+                    fragments=altered['units'][0]['languages']['en'][0]['fragments']
+                    fragments[1]['scan']=fragments[0]['scan'];fragments[1].pop('page_start',None)
+                else:altered['units'][0]['languages']['en'][0]['fragments'][1]['page_start']=False
+                with self.assertRaises(ValueError):validate_occurrences(altered)
+
+    def test_remapping_to_another_valid_host_changes_the_receipt(self):
+        r=fixture();before={k:v for k,v,_ in review_payloads(r)}
+        other=deepcopy(r['units'][0]);other['stem']='other'
+        other['languages']['en'][0]['corresp']=P+'/other'
+        other['languages']['en'][0]['fragments'][0]['text']='forever'
+        r['units'].append(other)
+        r['units'][1]['languages']['en'][0]['canonical']=P+'/other'
+        r['units'][1]['wording_selection']=[]
+        validate_occurrences(r)
+        after={k:v for k,v,_ in review_payloads(r)}
+        self.assertNotEqual(before['realization/occurrence/en'],after['realization/occurrence/en'])
+
+    def test_original_cross_page_and_wrong_wording_guards_still_fail(self):
+        r=fixture();r['units'][1]['wording_selection']=selection(r,'host')
+        with self.assertRaisesRegex(ValueError,'differs from its image'):validate_occurrences(r)
+        r=fixture();r['wording_variants']=[];r['units'][1]['wording_selection']=[]
+        r['units'][0]['languages']['en'][0]['fragments'].append(dict(scan='s3',text='continuation'))
+        with self.assertRaisesRegex(ValueError,'crosses a printed source page'):validate_occurrences(r)
+
+    def test_duplicate_bible_host_fails_before_rendering(self):
+        r=fixture();r['wording_variants']=[];r['units'][1]['wording_selection']=[]
+        identity='urn:x-opensiddur:text:bible:psalms/146/10'
+        r['units'][0]['languages']['en'][0]['corresp']=identity
+        other=deepcopy(r['units'][0]);other['stem']='other';r['units'].append(other)
+        r['units'][1]['languages']['en'][0]['canonical']=identity
+        with self.assertRaisesRegex(ValueError,'one host'):validate_occurrences(r)
 
     def test_join_respects_punctuation_and_split_words(self):
         from opensiddur.importer.marmorstein_rosh_hashanah_1.realizations import join_source_fragments
@@ -195,7 +275,7 @@ class RealizationTest(unittest.TestCase):
         docs=[(Path('/project/example-en/host.xml'),root),(Path('/project/example-en/caller.xml'),caller)]
         validate_generated(docs,r)
         self.assertEqual(caller.xpath('//tei:f/@name',namespaces=NS),[A,B])
-        with self.assertRaisesRegex(ValueError,'one generated home'):
+        with self.assertRaisesRegex(ValueError,'one generated home|Duplicate generated publication'):
             validate_generated(docs+[(Path('/project/example-en/duplicate.xml'),deepcopy(root))],r)
 
     def test_range_caller_selects_overlay_after_an_unvaried_start(self):
@@ -213,3 +293,108 @@ class RealizationTest(unittest.TestCase):
         r['expanded_order']=[dict(reference={'target':P+'/part'},declarations=[dict(type='opensiddur:variant',features={A:True,B:False})])]
         after=dict((k,v) for k,v,_ in review_payloads(r))
         self.assertNotEqual(before['realization/occurrence/en'],after['realization/occurrence/en'])
+
+    def test_generated_pure_library_rejects_controls_roots_and_ranges(self):
+        from pathlib import Path
+        from lxml import etree
+        from opensiddur.importer.marmorstein_rosh_hashanah_1 import PROJECTS
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.realizations import validate_generated
+        T='{'+NS['tei']+'}';J='{'+NS['j']+'}'
+        def setup():
+            r=fixture();host,caller=r['units'];host['canonical_parts']=True
+            caller['wording_selection']=selection(r,'host')
+            caller['languages']['en'][0]['fragments']=deepcopy(host['languages']['en'][0]['fragments'])
+            root=unit_document(prepare_unit(host,r),'en',True)
+            other=unit_document(prepare_unit(caller,r),'en',True)
+            project=Path('/projects')/PROJECTS['en']
+            return r,[(project/'host.xml',root),(project/'occurrence.xml',other)]
+        r,docs=setup();validate_generated(docs,r)
+        self.assertFalse(docs[0][1].findall('.//'+T+'publicationStmt/'+T+'idno'))
+        for mutation in ['pb','note','head','conditional','declare','transclude','root','publication','targetEnd','range']:
+            with self.subTest(mutation=mutation):
+                r,docs=setup();root=docs[0][1];body=root.find(T+'text/'+T+'body/'+T+'div')
+                if mutation in ['conditional','declare','transclude']:etree.SubElement(body,J+mutation)
+                elif mutation in ['pb','note','head']:etree.SubElement(body,T+mutation)
+                elif mutation=='root':body.set('corresp',P)
+                elif mutation=='publication':etree.SubElement(root.find('.//'+T+'publicationStmt'),T+'idno',type='urn').text=P
+                else:
+                    attrs={'target':P+'/part','targetEnd':P+'/part'}if mutation=='targetEnd'else{'target':P+'/part-/part'}
+                    etree.SubElement(docs[1][1].find(T+'text/'+T+'body/'+T+'div'),J+'transclude',**attrs)
+                with self.assertRaises(ValueError):validate_generated(docs,r)
+
+    def test_pure_word_edit_changes_the_library_and_both_caller_receipts(self):
+        r=fixture();r['wording_variants']=[];host,caller=r['units'];host['canonical_parts']=True
+        caller['wording_selection']=[];caller['languages']['en'][0]['fragments']=deepcopy(host['languages']['en'][0]['fragments'])
+        other=deepcopy(caller);other['stem']='another';other['urn']='urn:x-opensiddur:text:siddur:another';r['units'].append(other)
+        before={k:v for k,v,_ in review_payloads(r)}
+        host['languages']['en'][0]['fragments'][0]['text']='changed source words'
+        after={k:v for k,v,_ in review_payloads(r)}
+        for stem in ['host','occurrence','another']:
+            self.assertNotEqual(before['realization/'+stem+'/en'],after['realization/'+stem+'/en'])
+
+    def test_redirected_old_qedushah_keeps_its_own_speakers_and_scope(self):
+        import json
+        from opensiddur.common.constants import SOURCETEXTS_ROOT
+        from opensiddur.importer.marmorstein_rosh_hashanah_1 import BOOK
+        from pathlib import Path
+        old=json.loads((Path(__file__).parent/'fixtures/marmorstein_qedushah_before_reuse.json').read_text())['unit']
+        original=deepcopy(old);parts=[P.replace('prayer:example','prayer:amidah/qedushah')+'/'+s for s in ['qadosh','barukh_kevod','uvedivrei','ledor_vador']]
+        library=dict(stem='library',urn='urn:x-opensiddur:text:siddur:shared/qedushah_parts',title={'he':'חלקי קדושה'},canonical_parts=True,languages={'he':[]})
+        for segment in old['languages']['he']:
+            if segment.get('corresp')in parts:
+                identity=segment.pop('corresp');library['languages']['he'].append(dict(corresp=identity,fragments=deepcopy(segment['fragments'])))
+                segment['canonical']=identity
+        old['page_context']='minchah/qedushah'
+        caller=dict(stem='musaf',urn='urn:x-opensiddur:text:siddur:example/musaf',title={'he':'מוסף'},languages={'he':[]})
+        for segment in library['languages']['he']:
+            caller['languages']['he'].append(dict(canonical=segment['corresp'],speaker={'label':'חזן חדש','role':'reader'},fragments=deepcopy(segment['fragments'])))
+        r={'units':[old,library,caller]};validate_occurrences(r)
+        self.assertEqual(unit_review_text(old,'he'),unit_review_text(original,'he'))
+        root=unit_document(prepare_unit(old,r),'he',True)
+        kept={s['corresp']for s in original['languages']['he']if s.get('corresp')not in parts}
+        self.assertTrue(kept.issubset(set(root.xpath('//tei:milestone/@corresp',namespaces=NS))))
+        transclusions=root.xpath('//j:transclude',namespaces=NS)
+        self.assertEqual([n.get('target').partition('@')[0]for n in transclusions],parts)
+        for node in transclusions:self.assertEqual(node.getprevious().tag,'{'+NS['tei']+'}note')
+        opening=root.xpath('//j:conditional',namespaces=NS)[0]
+        ending=root.xpath('//j:endConditional',namespaces=NS)[-1]
+        flattened=list(root.iter())
+        self.assertTrue(all(flattened.index(opening)<flattened.index(n)<flattened.index(ending)for n in transclusions))
+        new=unit_document(prepare_unit(caller,r),'he',True)
+        self.assertEqual(new.xpath('//tei:note/text()',namespaces=NS),['חזן חדש']*4)
+
+    def test_opt_in_encoding_receipt_binds_condition_and_option_interpretation(self):
+        r=fixture();r['units']=r['units'][:1];r['wording_variants']=[];u=r['units'][0];u['review_encoding']=True
+        segment=u['languages']['en'][0]
+        before_literal=unit_review_text(u,'en');before={k:v for k,v,_ in review_payloads(r)}
+        segment['conditions']=[dict(type='opensiddur:variant',features={A:True})]
+        self.assertEqual(unit_review_text(u,'en'),before_literal)
+        changed={k:v for k,v,_ in review_payloads(r)}
+        self.assertNotEqual(before['realization/host/en'],changed['realization/host/en'])
+        segment['fragments'][0]['alternatives']=[dict(printed='for ever',readings=[dict(text='for ever',corresp=A),dict(text='forever',corresp=B)])]
+        previous={k:v for k,v,_ in review_payloads(r)}
+        segment['fragments'][0]['alternatives'][0]['readings'][1]['corresp']=A+'/different'
+        later={k:v for k,v,_ in review_payloads(r)}
+        self.assertNotEqual(previous['realization/host/en'],later['realization/host/en'])
+
+    def test_pure_library_root_has_no_target_and_printed_parts_require_pointers(self):
+        r=fixture();r['wording_variants']=[];host,caller=r['units'];host['canonical_parts']=True
+        caller['wording_selection']=[];caller['languages']['en'][0]['fragments']=deepcopy(host['languages']['en'][0]['fragments'])
+        r['expanded_order']=[{'reference':{'target':P+'/part'}}]
+        validate_occurrences(r)  # A backed single-part recitation reference is supported.
+        for mode in ['order','repeat','transclude','cue','reuse']:
+            for target in [host['urn'],P+'/part']:
+                with self.subTest(mode=mode,target=target):
+                    altered=deepcopy(r)
+                    if mode=='order':
+                        if target==P+'/part':continue
+                        altered['expanded_order']=[{'reference':{'target':target}}]
+                    else:
+                        extra=deepcopy(caller);extra['stem']='extra';extra['wording_selection']=[]
+                        segment=extra['languages']['en'][0];segment.pop('canonical');segment['fragments'][0]['text']='Source cue'
+                        if mode=='reuse':extra['reuse']={'en':target}
+                        elif mode=='cue':segment['repeat_cue']={'target':target,'text':'cue'}
+                        else:segment[mode]=target
+                        altered['units'].append(extra)
+                    with self.assertRaisesRegex(ValueError,'whole-library target|attested canonical pointers'):
+                        validate_occurrences(altered)

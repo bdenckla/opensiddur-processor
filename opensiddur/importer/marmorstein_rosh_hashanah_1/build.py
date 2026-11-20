@@ -15,7 +15,7 @@ import yaml
 from opensiddur.common.constants import PROJECT_DIRECTORY, SOURCETEXTS_ROOT
 from opensiddur.common.urn_registry import load_registry, parse_urn
 from opensiddur.importer.scan.authoring import (
-    TEI, J, XML, element, mixed_words, append_words, write_documents, apply_corrections,
+    TEI, J, XML, element, mixed_words, append_words, write_documents,
 )
 from opensiddur.importer.scan.navigation import append_instruction
 from opensiddur.importer.scan.review import review_is_current
@@ -35,9 +35,10 @@ def document(lang, project, title, urn, *, index=False, draft=False):
     desc = element(element(root, 'teiHeader'), 'fileDesc')
     titles = element(desc, 'titleStmt')
     element(titles, 'title', title, type='main')
-    responsibility = element(titles, 'respStmt')
-    element(responsibility, 'resp', 'AI-assisted scan reading and JLPTEI encoding', key='trc')
-    element(responsibility, 'name', 'Codex', ref='urn:x-opensiddur:contributor:opensiddur.org/codex')
+    for key, description in [('trc', 'AI-assisted scan transcription'), ('mrk', 'JLPTEI markup')]:
+        responsibility = element(titles, 'respStmt')
+        element(responsibility, 'resp', description, key=key)
+        element(responsibility, 'name', 'Codex', ref='urn:x-opensiddur:contributor:opensiddur.org/codex')
     edition = element(desc, 'editionStmt')
     element(edition, 'edition', ('DRAFT: independent adjudication pending. ' if draft else '')
             + 'Digitization in progress. Independent image readings and '
@@ -46,7 +47,7 @@ def document(lang, project, title, urn, *, index=False, draft=False):
     element(element(publication, 'distributor'), 'ref', 'Open Siddur Project', target='https://opensiddur.org')
     element(publication, 'idno', urn+'@'+project, type='urn')
     availability = element(publication, 'availability', status='free')
-    element(availability, 'licence', 'CC0 1.0 Universal', target='https://creativecommons.org/publicdomain/zero/1.0/')
+    element(availability, 'licence', 'Creative Commons Zero (Public Domain Dedication)', target='http://www.creativecommons.org/publicdomain/zero/1.0')
     source = element(desc, 'sourceDesc')
     if index:
         bibl = element(source, 'bibl')
@@ -98,6 +99,11 @@ def quotation_words(parent, text, quotations, lang):
         source = quotation['source_reference']
         book, chapter, verse = source.rsplit(':', 1)[-1].split('/')
         part = quotation.get('source_reference_part')
+        inline_scope = quotation.get('inline_scope', False)
+        if type(inline_scope) is not bool:
+            raise ValueError('Inline quotation scope must be explicitly boolean')
+        if part and inline_scope:
+            raise ValueError('Inline quotation scope does not support a subverse part')
         if part:
             if (part.get('unit') != 'half-verse' or part.get('n') not in ('a', 'b')
                     or part.get('corresp') != source+'/'+part['n']):
@@ -106,17 +112,18 @@ def quotation_words(parent, text, quotations, lang):
                 raise ValueError('A partial quotation must not map the whole chapter or verse')
         elif not quotation.get('chapter_corresp') or not quotation.get('source_reference_corresp'):
             raise ValueError('Quotation requires chapter and verse correspondences or a canonical half-verse')
-        element(parent, 'milestone', unit='chapter', n=chapter,
+        scope = element(parent, 'seg', source=source, type='quotation') if inline_scope else parent
+        element(scope, 'milestone', unit='chapter', n=chapter,
                 **({'corresp': quotation['chapter_corresp']} if quotation.get('chapter_corresp') else {}))
-        element(parent, 'milestone', unit='verse', n=verse,
+        element(scope, 'milestone', unit='verse', n=verse,
                 **({'corresp': quotation['source_reference_corresp']} if quotation.get('source_reference_corresp') else {}))
         if part:
-            element(parent, 'milestone', **part)
-        words(element(parent, 'seg', source=source), quoted, lang)
+            element(scope, 'milestone', **part)
+        words(scope if inline_scope else element(parent, 'seg', source=source), quoted, lang)
         if part:
-            element(parent, 'milestone', unit=part['unit'])
-        element(parent, 'milestone', unit='verse')
-        element(parent, 'milestone', unit='chapter')
+            element(scope, 'milestone', unit=part['unit'])
+        element(scope, 'milestone', unit='verse')
+        element(scope, 'milestone', unit='chapter')
     words(parent, text, lang)
 
 
@@ -127,6 +134,8 @@ def rubric_words(parent, rubric, lang):
         return
     if rubric.get('resp'):
         parent.set('resp', rubric['resp'])
+    if rubric.get('corresp'):
+        parent.set('corresp', rubric['corresp'])
     text = rubric['text']
     if rubric.get('language_spans') and rubric.get('abbreviations'):
         raise ValueError('Overlapping abbreviation and language-span interpretation is not supported')
@@ -171,6 +180,8 @@ def rubric_words(parent, rubric, lang):
 
 def instruction_review_text(instruction):
     parts = [instruction['text']]
+    if instruction.get('corresp'):
+        parts.append('[correspondence '+instruction['corresp']+']')
     parts.extend(a['abbr']+' ['+a['expan']+']' for a in instruction.get('abbreviations', []))
     parts.extend(span['text']+' ['+span['language']+']'
                  for span in instruction.get('language_spans', []))
@@ -336,8 +347,48 @@ def unit_document(unit, lang, draft):
             if text_language != lang:
                 paragraph.set(XML+'lang', text_language)
             current_paragraph = identity
+        if segment.get('canonical'):
+            # Its own speaker/condition cannot remain in the preceding literal part.
+            close_references()
         segment_conditions = segment.get('conditions', [])
         opening_fragment = segment['fragments'][0]
+        if 'deferred_page_boundary' in segment:
+            # A printed page can begin inside an optional clause. Keep the
+            # exact scan on its literal fragments, but anchor its page marker
+            # after that clause, where omitting the words cannot omit the page.
+            if (segment_conditions or segment_condition_scopes
+                    or segment.get('deferred_page_boundary') is not True
+                    or opening_fragment['scan'] != current_page
+                    or opening_fragment.get('page_start', True)):
+                raise ValueError('Deferred page boundary requires an unconditional continuation on the current unmarked page')
+            previous_fragments = [f for s in unit['languages'][lang][:segment_index]
+                                  for f in s['fragments']]
+            on_page = [f for f in previous_fragments if f['scan'] == current_page]
+            preceding = unit['languages'][lang][segment_index-1] if segment_index else {}
+            preceding_fragments = preceding.get('fragments', [])
+            # This deliberately supports only a transition inside the immediately
+            # preceding optional segment, never an arbitrary mid-page occurrence.
+            transition = next((i for i, f in enumerate(preceding_fragments)
+                               if f['scan'] == current_page), None)
+            valid_transition = (preceding.get('conditions') and preceding.get('marked')
+                                and not preceding.get('condition_end_corresp')
+                                and transition is not None and transition > 0
+                                and preceding_fragments[transition-1]['scan'] != current_page
+                                and on_page == preceding_fragments[transition:]
+                                and all(f['scan'] == current_page for f in preceding_fragments[transition:])
+                                and preceding_fragments[transition].get('printed_page') == opening_fragment.get('printed_page'))
+            already_deferred = any(s.get('deferred_page_boundary')
+                                   and s['fragments'][0]['scan'] == current_page
+                                   for s in unit['languages'][lang][:segment_index])
+            if not on_page or already_deferred or any(f.get('page_start', True) for f in on_page):
+                raise ValueError('Deferred page boundary cannot duplicate an existing page marker')
+            if not valid_transition:
+                raise ValueError('Deferred page boundary requires the first continuation after a marked clause containing the matching page transition')
+            attributes = {'ed': '1965', 'facs': page_image_url(
+                IDENTIFIER, int(current_page[1:])-1, size='')}
+            if opening_fragment.get('printed_page') is not None:
+                attributes['n'] = opening_fragment['printed_page']
+            element(paragraph, 'pb', **attributes)
         if (segment_conditions and opening_fragment['scan'] != current_page
                 and opening_fragment.get('page_start', True)):
             # A continuation rubric belongs to the new source page too.
@@ -716,6 +767,8 @@ def unit_review_text(unit, lang):
         parts.extend(span['text']+' ['+span['language']+']'
                      for span in instruction.get('language_spans', []))
     for segment in unit['languages'][lang]:
+        if segment.get('deferred_page_boundary'):
+            parts.append('[page boundary deferred after optional clause]')
         if segment.get('edition_label'):
             parts.append(segment['edition_label'])
         for instruction in segment.get('instructions', []):
@@ -791,7 +844,8 @@ def transclude_unit(parent, unit, readings, *, project=None, documentary=False):
         declaration = element(parent, 'j:declare')
         declaration.set(XML+'id', identifier)
         feature_structures(declaration, settings)
-    attributes = {'target': unit_urn(unit)} if documentary else reference(unit)
+    context_urn = unit.get('canonical_home', {}).get('context_urn', unit_urn(unit))
+    attributes = {'target': context_urn} if documentary else reference(unit)
     if project:
         attributes['target'] += '@'+project
     element(parent, 'j:transclude', type='external', **attributes)
@@ -948,8 +1002,8 @@ def add_front(root, pages, *, expanded=False):
         element(front, 'j:endConditional', target='#'+identifier)
 
 
-def require_review(readings, reviews):
-    for key, payload, _ in review_payloads(readings):
+def require_review(readings, reviews, corrections=None):
+    for key, payload, _ in review_payloads(readings, corrections):
         if not review_is_current(reviews.get(key, {}), payload):
             raise ValueError('Independent canonical realization review pending or stale: '+key)
     for unit in readings['units']:
@@ -961,7 +1015,7 @@ def require_review(readings, reviews):
                 key = f"citation/{unit['stem']}/{lang}/{index}"
                 if not review_is_current(reviews.get(key, {}), instruction_review_text(citation)):
                     raise ValueError('Independent citation review pending: '+key)
-    by_identity = {unit['urn']: unit for unit in readings['units'] if unit.get('map_root', True)}
+    by_identity = {unit['urn']: unit for unit in readings['units'] if unit.get('map_root', True) and not unit.get('canonical_parts')}
     for unit in readings['units']:
         for lang, segments in unit['languages'].items():
             for segment in segments:
@@ -1085,14 +1139,28 @@ def documentary_order(div, order, readings, by_stem, lang, project):
 
 def build(source, project_directory, *, draft=False):
     readings = json.loads((source/'readings.json').read_text())
+    baseline_path = readings.get('accepted_literal_baseline')
+    if baseline_path:
+        from .baseline import validate_baseline
+        path = (source/baseline_path).resolve()
+        if not path.is_relative_to(source.resolve()):
+            raise ValueError('Accepted literal baseline must be inside the source book')
+        validate_baseline(readings, json.loads(path.read_text()))
+    elif any(u.get('canonical_parts') or u.get('canonical_home') or u.get('canonical_whole')
+             or u.get('page_context') or any(s.get('canonical') or s.get('canonical_end')
+                                            for ss in u['languages'].values() for s in ss)
+             for u in readings['units']):
+        raise ValueError('Canonical parts integration requires an accepted literal baseline')
     validate_occurrences(readings)
-    realization_payloads = {key: payload for key, payload, _ in review_payloads(readings)}
+    corrections_path = source/'corrections.json'
+    correction_items = json.loads(corrections_path.read_text())['corrections'] if corrections_path.exists() else []
+    realization_payloads = {key: payload for key, payload, _ in review_payloads(readings, correction_items)}
     reviews_path = source/'reviews.json'
     reviews = json.loads(reviews_path.read_text()) if reviews_path.exists() else {}
     front_path = source/'front.json'
     front_pages = json.loads(front_path.read_text())['pages'] if front_path.exists() else []
     if not draft:
-        require_review(readings, reviews)
+        require_review(readings, reviews, correction_items)
         for page in front_pages:
             if page['kind'] in FRONT_KINDS:
                 if not review_is_current(reviews.get('front/'+page['scan'], {}), front_text(page)):
@@ -1108,7 +1176,7 @@ def build(source, project_directory, *, draft=False):
             for segment in segments:
                 identities.extend(segment[key] for key in ('canonical', 'canonical_end') if segment.get(key))
         identities.extend(unit[key] for key in ('canonical_whole', 'text_corresp') if unit.get(key))
-        identities.extend(unit.get('canonical_home', {})[key] for key in ('urn','text_corresp') if unit.get('canonical_home', {}).get(key))
+        identities.extend(unit.get('canonical_home', {})[key] for key in ('urn','text_corresp','context_urn') if unit.get('canonical_home', {}).get(key))
         if unit.get('publication_context'):
             identities.append(unit['publication_context'])
         identities.extend(unit.get('reuse', {}).values())
@@ -1152,7 +1220,8 @@ def build(source, project_directory, *, draft=False):
             yield start
             if end:
                 yield end
-    for urn in set(urn_strings(readings.get('wording_variants', []))) | set(urn_strings(readings.get('source_order', []))) | set(urn_strings(readings.get('expanded_order', []))) | {
+    language_urns = {urn for unit in readings['units'] for urn in urn_strings(unit['languages'])}
+    for urn in language_urns | set(urn_strings(readings.get('wording_variants', []))) | set(urn_strings(readings.get('source_order', []))) | set(urn_strings(readings.get('expanded_order', []))) | {
             urn for unit in readings['units'] for key in ('wording_selection','conditions','citations')
             for urn in urn_strings(unit.get(key, []))}:
         parsed = parse_urn(urn)
@@ -1188,7 +1257,7 @@ def build(source, project_directory, *, draft=False):
             inline_section.pop('file')
             documentary_order(service_body, [inline_section], readings, by_stem, lang, project)
             documents.append((project_directory/project/(section['file']+'.xml'), service_root))
-        documentary_order(div, readings.get('source_order', [{'unit': unit['stem']} for unit in readings['units']]),
+        documentary_order(div, readings.get('source_order', [{'unit': unit['stem']} for unit in readings['units'] if not unit.get('canonical_parts')]),
                           readings, by_stem, lang, project)
         for unit in readings['units']:
             if lang in unit['languages']:
@@ -1212,25 +1281,18 @@ def build(source, project_directory, *, draft=False):
         element(bibliography, 'note', dependency['reason'])
     if readings.get('expanded_coverage_note'):
         bibliography = root.find(f'.//{{{TEI}}}sourceDesc/{{{TEI}}}bibl')
-        element(bibliography, 'note', readings['expanded_coverage_note'], type='encoding')
+        element(bibliography, 'note', readings['expanded_coverage_note'], type='encoding').set(XML+'lang', 'en')
     add_front(root, [], expanded=True)
     div = element(body, 'div', corresp=EXPANDED_URN)
     element(div, 'head', 'מחזור אשכנז מורחב').set(XML+'lang', 'he')
     element(div, 'head', 'Expanded Ashkenazi Mahzor').set(XML+'lang', 'en')
     # The same structural sequence drives Hebrew and any English counterparts.
-    order = readings.get('expanded_order', [{'unit': unit['stem']} for unit in readings['units']])
+    order = readings.get('expanded_order', [{'unit': unit['stem']} for unit in readings['units'] if not unit.get('canonical_parts')])
     by_stem = {unit['stem']: unit for unit in readings['units']}
     expanded_order(div, order, readings, by_stem)
     documents.append((project_directory/EXPANDED/'index.xml', root))
-    corrections = source/'corrections.json'
-    if corrections.exists():
-        by_path = {f'{path.parent.name}/{path.name}': root for path, root in documents}
-        correction_items = json.loads(corrections.read_text())['corrections']
-        guarded_stems = {key.split('/')[1] for key in realization_payloads}
-        guarded_stems.update(u['canonical_home']['file'] for u in readings['units'] if u.get('canonical_home'))
-        if any(Path(c['file']).stem in guarded_stems for c in correction_items):
-            raise ValueError('Canonical realization corrections must be part of its reviewed source data')
-        apply_corrections(by_path, correction_items)
+    from .canonical_corrections import apply_bound_corrections
+    apply_bound_corrections(documents, readings, correction_items)
     # A language witness removed from the readings must not remain discoverable
     # through refdb merely because an earlier build wrote its file.
     obsolete = [project_directory/project/(unit['stem']+'.xml')

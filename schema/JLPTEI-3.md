@@ -216,8 +216,15 @@ ranges as well as parallel rendering.
 
 A `tei:seg` remains appropriate for a bounded quotation carrying `source`, a
 language change, or other inline semantics. If that passage also needs a
-correspondence, place its milestone before the semantic span. Do not duplicate
-a canonical URN merely because the text is printed again elsewhere.
+correspondence, normally place its milestone before the semantic span. A short quotation
+inside a larger aligned liturgical part may instead keep its own **quote-context** chapter
+and verse milestones inside `tei:seg type="quotation"`: this keeps the inline phrase together
+in the parallel row. Keep the enclosing liturgical correspondence outside the span, retain
+canonical chapter/verse `@n` values, and close both inner scopes before the span ends. The
+quotation's contextual URNs identify only its bounded extent; they must not advertise a
+partial quotation as the canonical whole verse. Verify exact quoted-range resolution as
+well as both-language rendering. Do not duplicate a canonical URN merely because the text
+is printed again elsewhere.
 
 ### Terminating a scope
 
@@ -299,8 +306,9 @@ Two milestone units carry the two numberings, and they must not be confused:
 ```
 
 Because `edition-verse` carries no `@corresp`, the reference database and the parallel compiler — which look
-only at `@corresp` — ignore it entirely. Which numbering a reader sees is a rendering choice, driven by the
-`opensiddur:verse-numbering` setting.
+only at `@corresp` — ignore it entirely. Canonical verse-number visibility is a rendering choice:
+`typography.markers.verse_numbers` selects `shown` or `hidden`. Keep canonical `@n` values
+when hiding numbers; edition-number labels remain separate display markers.
 
 ### Rules
 
