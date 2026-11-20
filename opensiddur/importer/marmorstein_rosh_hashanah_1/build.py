@@ -225,6 +225,10 @@ def unit_document(unit, lang, draft):
             element(root.find(f'.//{{{TEI}}}sourceDesc/{{{TEI}}}bibl'), 'biblScope', unit='pages',
                     **{'from': pair[0], 'to': pair[1]})
             pages.add(pair)
+    for note in unit.get('source_notes', {}).get(lang, []):
+        description = element(root.find(f'.//{{{TEI}}}sourceDesc/{{{TEI}}}bibl'),
+                              'note', note['text'], type='encoding')
+        description.set(XML+'lang', note.get('language', lang))
     if reuse:
         # A documentary occurrence can reuse an identical earlier witness
         # without registering the canonical prayer a second time.
@@ -268,7 +272,7 @@ def unit_document(unit, lang, draft):
     if citations:
         notes = element(root, 'standOff', type='notes')
         root.remove(notes)
-        root.insert(list(root).index(body.getparent()), notes)
+        root.insert(list(root).index(root.find(f'{{{TEI}}}text')), notes)
         passage_scans = {fragment['scan'] for segment in unit['languages'][lang]
                          for fragment in segment['fragments']}
         for citation in citations:
@@ -700,6 +704,8 @@ def unit_review_text(unit, lang):
     # This is a review payload, not printed prayer text. Include both the
     # source abbreviation and its interpretation so either change needs review.
     parts = ([unit['head'][lang]] if unit.get('head', {}).get(lang) else [])
+    parts.extend('[source encoding note '+note.get('language', lang)+': '+note['text']+']'
+                 for note in unit.get('source_notes', {}).get(lang, []))
     if unit.get('opening_page', {}).get(lang):
         parts.append('[source page starts before opening rubric]')
     if unit.get('marked'):

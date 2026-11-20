@@ -27,6 +27,25 @@ def fixture():
 
 
 class RealizationTest(unittest.TestCase):
+    def test_partial_translation_note_stays_in_source_header_and_requires_review(self):
+        u=fixture()['units'][0]
+        before=unit_review_text(u,'en')
+        u['source_notes']={'en':[dict(text='Only the final stanza is translated in the source.')]}
+        root=unit_document(u,'en',True)
+        self.assertEqual(root.xpath('//tei:sourceDesc/tei:bibl/tei:note[@type="encoding"]/text()',namespaces=NS),
+                         ['Only the final stanza is translated in the source.'])
+        self.assertNotIn('Only the final stanza',''.join(root.xpath('//tei:body',namespaces=NS)[0].itertext()))
+        self.assertNotEqual(before,unit_review_text(u,'en'))
+
+    def test_context_wrapper_does_not_break_standoff_annotation_placement(self):
+        u=fixture()['units'][0]
+        u['publication_context']='urn:x-opensiddur:text:siddur:example/context'
+        u['citations']={'en':[dict(scan='s2',text='Source apparatus.',note_type='annotation')]}
+        root=unit_document(u,'en',True)
+        self.assertEqual([e.tag.rsplit('}',1)[-1] for e in root],['teiHeader','standOff','text'])
+        self.assertEqual(root.xpath('//tei:standOff/tei:note/@target',namespaces=NS),[P])
+        self.assertEqual(root.xpath('//tei:body/tei:div/@corresp',namespaces=NS),[u['publication_context']])
+
     def test_overlay_does_not_edit_literal_evidence_or_its_review(self):
         r=fixture();before=deepcopy(r);payload=unit_review_text(r['units'][0],'en')
         effective=prepare_unit(r['units'][0],r)

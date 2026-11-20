@@ -472,7 +472,10 @@ urn:x-opensiddur:instruction:role/kohanim
 blessing is said by the kohanim present and by nobody else, and a siddur that marked it
 "congregation" would be telling the wrong people to say it.
 
-Emitted as `tei:note type="instruction"` carrying the URN in `@corresp`.
+Speaker labels before the passage they describe are emitted as
+`tei:note type="description"` carrying the URN in `@corresp`, following
+[Kinds of rubric](../schema/JLPTEI-3.md#kinds-of-rubric). A direction to say
+material that is not present is an instruction instead.
 
 ## Partial witnesses are normal
 
