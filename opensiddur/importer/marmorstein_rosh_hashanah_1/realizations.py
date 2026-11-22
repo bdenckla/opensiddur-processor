@@ -8,6 +8,74 @@ PLAIN_FRAGMENT_KEYS = {'scan','printed_page','text','page_start','join_next'}
 PLAIN_SEGMENT_KEYS = {'paragraph','fragments','corresp','source','source_reference',
                      'source_reference_corresp','chapter_corresp','reference_unit',
                      'end_reference','source_reference_end','source_reference_part'}
+OCCURRENCE_CONTROL_KEYS = {'conditions', 'condition_instruction',
+                           'condition_instruction_language', 'speaker',
+                           'speaker_before_reference'}
+CANONICAL_OCCURRENCE_KEYS = {'paragraph', 'fragments', 'canonical', 'canonical_end'} | OCCURRENCE_CONTROL_KEYS
+
+
+def validate_occurrence_controls(segment):
+    """Controls stay at the printing; word hosts remain strictly plain."""
+    conditions = segment.get('conditions', [])
+    if (not isinstance(conditions, list) or any(
+            not isinstance(fs, dict) or not isinstance(fs.get('type'), str)
+            or not isinstance(fs.get('features'), dict) or not fs['features']
+            for fs in conditions)):
+        raise ValueError('Occurrence conditions require typed feature structures')
+    if (segment.get('condition_instruction') or segment.get('condition_instruction_language')) and not conditions:
+        raise ValueError('Occurrence condition instruction requires conditions')
+
+
+    speaker = segment.get('speaker')
+    if speaker is not None:
+        from .build import ROLE_LABELS
+        if not isinstance(speaker, dict):
+            raise ValueError('Occurrence speaker requires a role or abbreviation')
+        if 'label' in speaker:
+            valid = isinstance(speaker['label'], str) and speaker.get('role') in ROLE_LABELS
+        else:
+            valid = (isinstance(speaker.get('abbr'), str)
+                     and speaker.get('expan') in set(ROLE_LABELS.values()) | {'חזן וקהל'})
+        if not valid:
+            raise ValueError('Unknown occurrence speaker role or expansion')
+    if 'speaker_before_reference' in segment and (
+            not speaker or type(segment['speaker_before_reference']) is not bool):
+        raise ValueError('Speaker position requires a speaker and boolean flag')
+
+
+def attesting_controls(readings, owner, lang, identities):
+    """Bind effective occurrence scopes, including scopes opened before a pointer."""
+    result = []
+    scope_keys = ('conditions', 'marked', 'condition_instruction',
+                  'condition_instruction_language', 'condition_end_corresp')
+    for unit in readings['units']:
+        if unit is owner or unit.get('reuse', {}).get(lang):
+            continue
+        effective, _ = prepare_documents(unit, readings)
+        segments = effective['languages'].get(lang, [])
+        scopes = []
+        for index, part in enumerate(segments):
+            scopes = [(end, payload) for end, payload in scopes if end >= index]
+            if part.get('conditions') and not part.get('transclude'):
+                end = index
+                if endpoint := part.get('condition_end_corresp'):
+                    ends = [i for i, s in enumerate(segments)
+                            if s.get('corresp') == endpoint and not s.get('transclude')]
+                    if len(ends) != 1 or ends[0] < index:
+                        raise ValueError('Condition endpoint must identify one current or later segment')
+                    end = ends[0]
+                scopes.append((end, dict(segment_index=index, end_index=end,
+                    **{k: deepcopy(part[k]) for k in scope_keys if k in part})))
+            target = part.get('canonical')
+            covered = ({target} | {segment_identity(s) for s in _range_segments(
+                readings, lang, target, part.get('canonical_end'))[1]} if target else set())
+            if target and (identities - {None}).intersection(covered):
+                result.append(dict(stem=unit['stem'], lang=lang, segment_index=index,
+                    unit={k: deepcopy(unit[k]) for k in
+                          ('conditions','marked','instructions','head','opening_page') if k in unit},
+                    segment={k: deepcopy(part[k]) for k in OCCURRENCE_CONTROL_KEYS if k in part},
+                    enclosing_scopes=[deepcopy(payload) for _, payload in scopes]))
+    return sorted(result, key=lambda v: (v['stem'], v['lang'], v['segment_index']))
 
 
 def join_source_fragments(fragments):
@@ -246,10 +314,10 @@ def validate_occurrences(readings):
                 if not target:
                     continue
                 fragments = segment['fragments']
-                if (len(fragments) != 1 or any(segment.get(k) for k in
-                        ('corresp','source_reference','source','repeat','transclude','conditions'))
+                if (len(fragments) != 1 or set(segment) - CANONICAL_OCCURRENCE_KEYS
                         or set(fragments[0]) - PLAIN_FRAGMENT_KEYS):
                     raise ValueError('Canonical occurrence must be one plain source fragment')
+                validate_occurrence_controls(segment)
                 actual = canonical_text(readings, lang, target, settings, segment.get('canonical_end'))
                 if ' '.join(actual.split()) != ' '.join(fragments[0]['text'].split()):
                     raise ValueError('Canonical occurrence differs from its image reading: '+unit['stem']+'/'+lang)
@@ -286,7 +354,18 @@ def validate_occurrences(readings):
             raise ValueError('Noncontiguous canonical parts cannot be a range')
         if literal and first in pure_ids:
             raise ValueError('Printed pure-part occurrences require attested canonical pointers')
+    def check_citations(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key in ('target', 'targetEnd', 'reference') and isinstance(child, str):
+                    check_target(child, literal=True)
+                else:
+                    check_citations(child)
+        elif isinstance(value, list):
+            for child in value:
+                check_citations(child)
     for unit in readings['units']:
+        check_citations(unit.get('citations', {}))
         for target in unit.get('reuse', {}).values():
             check_target(target, literal=True)
         for segments in unit['languages'].values():
@@ -337,13 +416,14 @@ def review_payloads(readings, corrections=None):
                 actual = canonical_text(readings, lang, target, settings, endpoint)
                 literal = source_text([segment])
                 owner, selected = _range_segments(readings, lang, target, endpoint)
-                selected_ids = {segment_identity(v) for v in selected}
+                selected_ids = {target} | {segment_identity(v) for v in selected}
                 range_corrections = [b for b in bindings if b['host'] == owner['stem']
                                      and b['language'] == lang and b['item']['identity'] in selected_ids]
                 corrected = corrected_text(actual, range_corrections)
                 normal = lambda text: ' '.join(text.split())
                 fidelity.append(dict(target=target, target_end=endpoint, settings=settings,
                                      corrections=[b['item'] for b in range_corrections],
+                                     attesting_controls=attesting_controls(readings, owner, lang, selected_ids),
                                      corrected_sha256=hashlib.sha256(normal(corrected).encode()).hexdigest(),
                                      resolved_sha256=hashlib.sha256(normal(actual).encode()).hexdigest(),
                                      literal_sha256=hashlib.sha256(normal(literal).encode()).hexdigest()))
@@ -419,9 +499,13 @@ def prepare_documents(unit, readings):
                 if not identity:
                     raise ValueError('Canonical home context requires identified source parts')
                 for key in ('corresp','reference_unit','source','source_reference',
-                            'source_reference_corresp','chapter_corresp','end_reference'):
+                            'source_reference_corresp','chapter_corresp','end_reference',
+                            'source_reference_end','source_reference_part'):
                     segment.pop(key, None)
                 segment['canonical'] = identity
+                if set(segment) - CANONICAL_OCCURRENCE_KEYS:
+                    raise ValueError('Generated canonical pointer contains unmodeled controls')
+                validate_occurrence_controls(segment)
     return context, home
 
 

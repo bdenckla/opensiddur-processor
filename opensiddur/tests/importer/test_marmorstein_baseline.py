@@ -67,3 +67,52 @@ class LiteralBaselineTest(unittest.TestCase):
                 elif mutation=='citation':unit['citations']={'he':[{'target':PARTS[0]}]}
                 else:segment['fragments'][0]['quotations']=[{}]
                 with self.assertRaises(ValueError):validate_redirection(r,'amidah_qedushah',PARTS)
+
+
+class ControlledRedirectionTest(unittest.TestCase):
+    def test_bilingual_conditioned_parts_keep_their_original_controls_and_baseline(self):
+        identity = 'urn:x-opensiddur:text:prayer:example/part'
+        source = dict(stem='source', urn='urn:x-opensiddur:text:siddur:example', title={'he':'Example'},
+                      languages={lang: [dict(corresp=identity, paragraph=1,
+                          conditions=[dict(type='opensiddur:rite', features={'frankfurt_am_main':False})],
+                          condition_instruction='Regional instruction', condition_instruction_language='en',
+                          fragments=[dict(scan='s2', printed_page='1', text='literal', page_start=False)])]
+                          for lang in ['he','en']})
+        readings = {'units':[source]}
+        baseline = snapshot(readings)
+        validate_redirection(readings, 'source', [identity])
+        for segments in source['languages'].values():
+            segments[0]['canonical'] = segments[0].pop('corresp')
+        validate_baseline(readings, baseline)
+        source['languages']['en'][0]['conditions'][0]['features']['frankfurt_am_main'] = True
+        with self.assertRaisesRegex(ValueError, 'Accepted source witness'):
+            validate_baseline(readings, baseline)
+
+    def test_duplicate_identity_in_one_language_and_unmodeled_controls_fail(self):
+        old = json.loads((BASELINE.parent/'marmorstein_qedushah_before_reuse.json').read_text())['unit']
+        for mode in ['duplicate', 'marked', 'anchor']:
+            with self.subTest(mode=mode):
+                unit = deepcopy(old)
+                segment = next(s for s in unit['languages']['he'] if s.get('corresp') == PARTS[0])
+                if mode == 'duplicate': unit['languages']['he'].append(deepcopy(segment))
+                else: segment[mode] = True
+                with self.assertRaises(ValueError):
+                    validate_redirection({'units':[unit]}, unit['stem'], [PARTS[0]])
+
+    def test_speaker_controls_survive_redirection(self):
+        identity = 'urn:x-opensiddur:text:prayer:example/part'
+        for speaker in [{'abbr': 'ח׳', 'expan': 'חזן'}, {'label': 'Cantor', 'role': 'reader'}]:
+            u = dict(stem='source', languages={'he': [dict(corresp=identity,
+                speaker=speaker, speaker_before_reference=True,
+                fragments=[dict(scan='s2', printed_page='1', text='words')])]})
+            r = {'units': [u]}; baseline = snapshot(r)
+            validate_redirection(r, 'source', [identity])
+            segment = u['languages']['he'][0]
+            segment['canonical'] = segment.pop('corresp')
+            validate_baseline(r, baseline)
+        for fields in [dict(speaker_before_reference=True),
+                       dict(speaker={'abbr': 'x', 'expan': 'unknown'})]:
+            u = dict(stem='source', languages={'he': [dict(corresp=identity,
+                fragments=[dict(scan='s2', text='words')], **fields)]})
+            with self.assertRaisesRegex(ValueError, 'speaker|Speaker'):
+                validate_redirection({'units': [u]}, 'source', [identity])

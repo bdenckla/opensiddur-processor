@@ -398,3 +398,199 @@ class RealizationTest(unittest.TestCase):
                         altered['units'].append(extra)
                     with self.assertRaisesRegex(ValueError,'whole-library target|attested canonical pointers'):
                         validate_occurrences(altered)
+
+
+class ControlledOccurrenceTest(unittest.TestCase):
+    def test_condition_and_its_instruction_stay_outside_the_word_pointer(self):
+        r = fixture()
+        segment = r['units'][1]['languages']['en'][0]
+        segment.update(conditions=[dict(type='opensiddur:rite', features={'frankfurt_am_main': False})],
+                       condition_instruction='Outside Frankfurt', condition_instruction_language='en')
+        validate_occurrences(r)
+        root = unit_document(prepare_unit(r['units'][1], r), 'en', True)
+        paragraph = root.xpath('//tei:body/tei:div/tei:p', namespaces=NS)[0]
+        children = [e.tag.rsplit('}', 1)[-1] for e in paragraph]
+        self.assertEqual(children, ['pb', 'conditional', 'transclude', 'endConditional'])
+        conditional = paragraph[1]
+        self.assertEqual(conditional.xpath('.//tei:note/text()', namespaces=NS), ['Outside Frankfurt'])
+        host = unit_document(prepare_unit(r['units'][0], r), 'en', True)
+        self.assertFalse(host.xpath('//j:conditional | //tei:note', namespaces=NS))
+
+    def test_unmodeled_pointer_controls_and_fragment_interpretations_still_fail(self):
+        for key, value in [('marked', True), ('condition_end_corresp', P+'/part'),
+                           ('instructions', [{}]), ('edition_label', 'I'),
+                           ('anchor', 'here'), ('source_reference_part', {}),
+                           ('deferred_page_boundary', True), ('transclude', P+'/part')]:
+            with self.subTest(key=key):
+                r = fixture()
+                r['units'][1]['languages']['en'][0][key] = value
+                with self.assertRaisesRegex(ValueError, 'one plain source fragment'):
+                    validate_occurrences(r)
+
+    def test_invalid_conditions_and_orphan_condition_rubric_fail(self):
+        for fields, message in [(dict(conditions=[{}]), 'typed feature structures'),
+                                (dict(conditions='unmodeled'), 'typed feature structures'),
+                                (dict(condition_instruction='No condition'), 'requires conditions')]:
+            with self.subTest(fields=fields):
+                r = fixture()
+                r['units'][1]['languages']['en'][0].update(fields)
+                with self.assertRaisesRegex(ValueError, message):
+                    validate_occurrences(r)
+
+    def test_other_attesters_condition_change_invalidates_caller_review(self):
+        r = fixture()
+        other = deepcopy(r['units'][1])
+        other['stem'] = 'other_printing'
+        other['languages']['en'][0]['conditions'] = [dict(type='opensiddur:rite', features={'frankfurt_am_main': False})]
+        r['units'].append(other)
+        before = {key: payload for key, payload, _ in review_payloads(r)}
+        other['languages']['en'][0]['conditions'][0]['features']['frankfurt_am_main'] = True
+        after = {key: payload for key, payload, _ in review_payloads(r)}
+        self.assertNotEqual(before['realization/occurrence/en'], after['realization/occurrence/en'])
+
+    def test_speaker_is_validated_and_stays_inside_the_condition(self):
+        r = fixture()
+        segment = r['units'][1]['languages']['en'][0]
+        segment.update(speaker={'abbr': 'ח׳', 'expan': 'חזן'}, speaker_before_reference=True,
+                       conditions=[dict(type='opensiddur:rite', features={'frankfurt_am_main': False})])
+        validate_occurrences(r)
+        root = unit_document(prepare_unit(r['units'][1], r), 'en', True)
+        pointer = root.xpath('//j:transclude', namespaces=NS)[0]
+        note = pointer.getprevious()
+        self.assertEqual(note.get('corresp'), 'urn:x-opensiddur:instruction:role/reader')
+        self.assertEqual(note.getprevious().tag, '{'+NS['j']+'}conditional')
+        self.assertEqual(pointer.getnext().tag, '{'+NS['j']+'}endConditional')
+        from lxml import etree
+        before = etree.tostring(root)
+        segment.pop('speaker_before_reference')
+        self.assertEqual(before, etree.tostring(unit_document(prepare_unit(r['units'][1], r), 'en', True)))
+        for bad in [{'label': 'Unknown', 'role': 'invented'}, {'abbr': 'x', 'expan': 'invented'}, 'reader']:
+            segment['speaker'] = bad
+            with self.assertRaisesRegex(ValueError, 'speaker'):
+                validate_occurrences(r)
+
+    def test_enclosing_scope_is_bound_and_attester_order_is_stable(self):
+        r = fixture()
+        other = deepcopy(r['units'][1])
+        other['stem'] = 'other'
+        other['languages']['en'].insert(0, dict(corresp=P+'/start',
+            conditions=[dict(type='opensiddur:rite', features={'frankfurt_am_main': False})],
+            condition_end_corresp=P+'/finish', fragments=[dict(scan='s2', printed_page='1', text='Introduction')]))
+        other['languages']['en'].append(dict(corresp=P+'/finish', fragments=[dict(scan='s2', printed_page='1', text='End')]))
+        r['units'].append(other)
+        before = {k: v for k, v, _ in review_payloads(r)}
+        r['units'].reverse()
+        self.assertEqual(before, {k: v for k, v, _ in review_payloads(r)})
+        other['languages']['en'][0]['conditions'][0]['features']['frankfurt_am_main'] = True
+        after = {k: v for k, v, _ in review_payloads(r)}
+        self.assertNotEqual(before['realization/occurrence/en'], after['realization/occurrence/en'])
+
+    def test_citations_cannot_attach_occurrence_apparatus_to_pure_words(self):
+        r = fixture()
+        r['wording_variants'] = []
+        host, caller = r['units']
+        host['canonical_parts'] = True
+        caller['wording_selection'] = []
+        caller['languages']['en'][0]['fragments'] = deepcopy(host['languages']['en'][0]['fragments'])
+        validate_occurrences(r)
+        caller['citations'] = {'en': [{'reference': 'https://example.org/source'}]}
+        validate_occurrences(r)
+        for target in [host['urn'], P+'/part']:
+            for key in ['target', 'targetEnd', 'reference']:
+                with self.subTest(target=target, key=key):
+                    caller['citations'] = {'en': [{key: target, 'text': 'Printed citation'}]}
+                    with self.assertRaisesRegex(ValueError, 'whole-library target|attested canonical pointers'):
+                        validate_occurrences(r)
+
+    def test_unidentified_host_spans_do_not_bind_unrelated_units(self):
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.realizations import attesting_controls
+        r = fixture()
+        host, caller = r['units']
+        host['languages']['en'].append(dict(paragraph=1, fragments=[dict(scan='s2', text='unidentified')]))
+        unrelated = dict(stem='unrelated', languages={'en': [dict(fragments=[dict(text='other words')])]})
+        r['units'].append(unrelated)
+        controls = attesting_controls(r, host, 'en', {None, P+'/part'})
+        self.assertEqual([(x['stem'], x['segment_index']) for x in controls], [('occurrence', 0)])
+        before = {k: v for k, v, _ in review_payloads(r)}
+        unrelated['languages']['en'][0]['fragments'][0]['text'] = 'changed unrelated words'
+        self.assertEqual(before, {k: v for k, v, _ in review_payloads(r)})
+
+    def test_speaker_flag_is_inert_after_open_prayer_or_bible_scope(self):
+        from lxml import etree
+        for identity in [P+'/prior', 'urn:x-opensiddur:text:bible:psalms/1/1']:
+            r = fixture(); unit = r['units'][1]
+            unit['languages']['en'].insert(0, dict(corresp=identity, paragraph=1,
+                fragments=[dict(scan='s2', printed_page='1', text='Prior words')]))
+            segment = unit['languages']['en'][1]
+            segment.update(speaker={'label': 'Cantor', 'role': 'reader'}, speaker_before_reference=True)
+            validate_occurrences(r)
+            root = unit_document(prepare_unit(unit, r), 'en', True)
+            pointer = root.xpath('//j:transclude', namespaces=NS)[0]
+            note = pointer.getprevious()
+            self.assertEqual(note.tag, '{'+NS['tei']+'}note')
+            closures = note.xpath('preceding-sibling::tei:milestone[not(@corresp)]', namespaces=NS)
+            self.assertEqual([n.get('unit') for n in closures if n.get('n') is None],
+                             ['verse', 'chapter'] if ':bible:' in identity else ['prayer-part'])
+            self.assertIs(pointer.getprevious(), note)
+            before = etree.tostring(root);segment.pop('speaker_before_reference')
+            self.assertEqual(before, etree.tostring(unit_document(prepare_unit(unit, r), 'en', True)))
+
+    def test_home_retains_verse_metadata_while_context_pointer_is_plain(self):
+        r = fixture();r['units'] = r['units'][:1];r['wording_variants'] = []
+        u = r['units'][0];bible = 'urn:x-opensiddur:text:bible:numbers/15/41'
+        u['canonical_home'] = dict(file='words', urn=P, title=u['title'], map_root=False,
+                                  context_urn='urn:x-opensiddur:text:siddur:example/context')
+        segment = u['languages']['en'][0]
+        segment.update(source_reference=bible, source_reference_end='reserved endpoint',
+                       chapter_corresp=P+'/part/quotes/numbers_15',
+                       source_reference_corresp=P+'/part/quotes/numbers_15/41',
+                       source_reference_part=dict(unit='verse-part', n='ani',
+                           corresp=P+'/part/quotes/numbers_15/41/ani'))
+        original = deepcopy(u)
+        context, home = prepare_documents(u, r)
+        pointer = context['languages']['en'][0]
+        for key in ['source_reference', 'source_reference_end', 'source_reference_part']:
+            self.assertNotIn(key, pointer)
+            self.assertEqual(home['languages']['en'][0][key], segment[key])
+        self.assertTrue(unit_document(home, 'en', True).xpath(
+            '//tei:milestone[@unit="verse-part"][@corresp]', namespaces=NS))
+        pointer['fragments'][0]['text'] = 'changed context'
+        self.assertEqual(u, original)
+        self.assertEqual(home['languages']['en'][0]['fragments'][0]['text'], 'for ever')
+        segment['unmodeled'] = True
+        with self.assertRaisesRegex(ValueError, 'contextual interpretations'):
+            prepare_documents(u, r)
+
+    def test_whole_text_and_canonical_whole_attesters_bind_each_others_conditions(self):
+        r = fixture();r['wording_variants'] = []
+        host, explicit = r['units'];host['text_corresp'] = P+'/whole'
+        host['languages']['en'][0].pop('corresp')
+        explicit['wording_selection'] = []
+        segment = explicit['languages']['en'][0]
+        segment['canonical'] = P+'/whole';segment['fragments'] = deepcopy(host['languages']['en'][0]['fragments'])
+        explicit['conditions'] = [dict(type='opensiddur:rite', features={'frankfurt_am_main': False})]
+        whole = deepcopy(explicit);whole['stem'] = 'whole_printing';whole['canonical_whole'] = P+'/whole'
+        whole['languages']['en'][0].pop('canonical');r['units'].append(whole)
+        validate_occurrences(r)
+        for changed, other in [(whole, explicit), (explicit, whole)]:
+            before = {k: v for k, v, _ in review_payloads(r)}
+            changed['conditions'][0]['features']['frankfurt_am_main'] ^= True
+            after = {k: v for k, v, _ in review_payloads(r)}
+            self.assertNotEqual(before['realization/'+other['stem']+'/en'], after['realization/'+other['stem']+'/en'])
+
+    def test_nonpure_range_attester_binds_controls_to_part_caller(self):
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.realizations import attesting_controls
+        r = fixture();r['wording_variants'] = []
+        host, caller = r['units'];caller['wording_selection'] = []
+        host['languages']['en'].append(dict(corresp=P+'/second', paragraph=1,
+            fragments=[dict(scan='s2', text='second')]))
+        caller['languages']['en'][0].update(canonical=P+'/second', fragments=[dict(scan='s4', text='second')])
+        other = deepcopy(caller);other['stem'] = 'ranged'
+        other['languages']['en'][0].update(canonical=P+'/part', canonical_end=P+'/second',
+            conditions=[dict(type='opensiddur:rite', features={'frankfurt_am_main':False})],
+            fragments=[dict(scan='s4', text='for ever second')]);r['units'].append(other)
+        validate_occurrences(r)
+        self.assertIn('ranged', [v['stem']for v in attesting_controls(r,host,'en',{P+'/second'})])
+        before = {k:v for k,v,_ in review_payloads(r)}
+        other['languages']['en'][0]['conditions'][0]['features']['frankfurt_am_main'] = True
+        self.assertNotEqual(before['realization/occurrence/en'], {k:v for k,v,_ in review_payloads(r)}['realization/occurrence/en'])

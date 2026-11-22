@@ -37,19 +37,22 @@ def validate_baseline(readings, baseline):
 
 def validate_redirection(readings, stem, identities):
     """Before redirecting accepted parts, reject controls that a new pointer would lose."""
+    from .realizations import (PLAIN_FRAGMENT_KEYS, PLAIN_SEGMENT_KEYS,
+                               OCCURRENCE_CONTROL_KEYS, validate_occurrence_controls)
     units = [u for u in readings['units'] if u['stem'] == stem]
     if len(units) != 1:
         raise ValueError('Redirection needs one existing source unit')
     for identity in identities:
-        matches = [s for ss in units[0]['languages'].values() for s in ss if s.get('corresp') == identity]
-        if len(matches) != 1:
+        matches = [[s for s in ss if s.get('corresp') == identity]
+                   for ss in units[0]['languages'].values()]
+        if not any(matches) or any(len(group) > 1 for group in matches):
             raise ValueError('Redirection needs one source segment per identity')
-        segment = matches[0]
-        if (len(segment['fragments']) != 1 or segment.get('conditions') or segment.get('source_reference_part')
-                or any(key in segment['fragments'][0] for key in
-                       ('alternatives','quotations','qere_ketiv','expansion','abbreviations',
-                        'enlarged_letters','uncertain_characters'))):
-            raise ValueError('Redirection cannot discard source controls or fragment interpretations')
+        for segment in [s for group in matches for s in group]:
+            if (len(segment['fragments']) != 1 or segment.get('source_reference_part')
+                    or set(segment) - PLAIN_SEGMENT_KEYS - OCCURRENCE_CONTROL_KEYS
+                    or set(segment['fragments'][0]) - PLAIN_FRAGMENT_KEYS):
+                raise ValueError('Redirection cannot discard source controls or fragment interpretations')
+            validate_occurrence_controls(segment)
     def targets(value):
         if isinstance(value, dict):
             for key, child in value.items():
