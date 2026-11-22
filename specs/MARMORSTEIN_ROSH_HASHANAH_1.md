@@ -1594,3 +1594,40 @@ PDF rubric/note layout, PR312 preserves Divine Name semantics through inline
 transclusion, and PR313 preserves each local rubric when its edition wins
 instruction selection. Preview QA uses their combined temporary branch;
 none of these exporter fixes is folded into this digitization change.
+
+### Accepted Malkhuyot installment through PDF 275
+
+The current acceptance record is sourcetexts
+`musaf_s252_s275_acceptance.json`: 276 of 355 complete leaves (PDF 1–275
+and the Hebrew-only appendix pilot on 351), 428 units, 766 Hebrew/English
+literal witnesses and 145 canonical realization payloads. The earlier
+254-complete-page count included two partial leaves; complete coverage before
+this installment was 252. All previously accepted 720 literal witnesses remain
+unchanged. The frozen baseline now protects all 766 witnesses. Next is
+Zikhronot on PDF 276; 79 leaves remain.
+
+The cantor repeats Aleinu through the paragraph's end, including וידעת היום,
+as confirmed in human413. Continuous weekday and Shabbat Malkhuyot poems retain
+separate scripture chains. Five source-attested Shabbat response customs and
+local cantor-repeat choices preserve the edition's alternatives without forcing
+an unresolved regional selection. Existing canonical identities are reused,
+including the established festival Umippenei identity. Human414 confirms six
+opening metegs in the repetition's Attah Vechartanu; a local wording selection
+reproduces that printing while leaving the earlier witness unchanged. Missing
+English remains absent.
+
+Independent blind source readings, guideline/alignment/identity/order reviews,
+all human375–414 decisions, exact current payload hashes and rejected-round
+resolutions are retained under `independent/musaf_s252_s275/`. The final full-book
+PDF/electronic review has no blocking findings. It records minor cosmetic
+separator and end-of-scope note-placement findings without text loss.
+
+All 804 XML files pass RelaxNG and Schematron; naming, feature, registry and
+reference checks pass. The 194 targeted tests/260 subtests, 52 compilation cases,
+19 exact canonical projections, 79 quotation extents and four full morning
+selections pass. Full previews contain 77 Hebrew, 210 parallel and 236 expanded
+PDF pages; six desktop/mobile browser states pass. Exporter fixes remain in
+separate PRs310/312/313. The combined QA runtime is 4dbe21c; the final note-order
+fix in PR310 keeps explicit body-anchor notes out of containing headings.
+All 95 Hebrew note marks are now consecutive. The digitization PRs remain draft
+because the rest of the volume has not been encoded.
