@@ -44,7 +44,17 @@ def validate_occurrence_controls(segment):
 
 
 def attesting_controls(readings, owner, lang, identities):
-    """Bind effective occurrence scopes, including scopes opened before a pointer."""
+    """Bind controls at every call site sharing the selected canonical identities.
+
+    These are dependency bindings, not assertions that each caller has the same
+    wording. Literal/resolved hashes in a realization describe that realization's
+    own settings only; another caller may select a different attested printing.
+    ``owner`` is the canonical host, which is excluded from its own caller list.
+    An original source occurrence redirected into a separate word library is a
+    caller too, even when its stem matches the realization being reviewed.
+    Include effective enclosing scopes so changing any caller's controls makes
+    dependent reviews stale without conflating its words with another printing.
+    """
     result = []
     scope_keys = ('conditions', 'marked', 'condition_instruction',
                   'condition_instruction_language', 'condition_end_corresp')

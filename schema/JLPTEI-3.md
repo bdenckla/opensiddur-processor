@@ -1810,6 +1810,20 @@ feature. For an edition's German/non-German ordering, test `german=true` and
 `german=false` respectively; leave it undefined to retain both labeled alternatives.
 Do not infer this regional choice from `ashkenaz` or from a different local custom.
 
+`opensiddur:practice/musaf-shabbat-responses` selects the community's Sabbath practice after each
+Musaf section's shofar direction. Its mutually exclusive symbol values are
+`omit_both` (neither Hayom Harat Olam nor Areshet Sefatenu), `hayom_only`
+(Hayom alone), `both_no_cantor_repeat`,
+`both_cantor_hayom` (both responses, with only Hayom repeated by the cantor),
+and `both_cantor_repeat`. This practice does not itself select a regional rite.
+Leave it undefined to retain labeled alternatives when the custom is unknown;
+encode any edition's explicit regional and weekday rules separately.
+Within `hayom_only`, the independent binary practice
+`musaf-hayom-only-cantor-repeat` selects the cantor's turn. The binary
+`musaf-areshet-cantor-repeat` selects the weekday Areshet repetition.
+Neither binary has a default: retain labeled alternatives where the book
+leaves the community's repetition custom undecided.
+
 A book also prints matter that is neither prayer nor commentary on it: a dedication, a
 preface, acknowledgements, an introduction, an epilogue or afterword, and any other prose
 of the book's own about the book. An edition used day to day as a siddur may want none of

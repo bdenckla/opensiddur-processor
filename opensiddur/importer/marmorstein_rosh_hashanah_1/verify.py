@@ -43,7 +43,10 @@ def report(source):
                 pending.append(key)
     for name, instruction in readings.get('documentary_instructions', {}).items():
         key = 'instruction/'+name
-        fragments.setdefault(instruction['scan'], []).append(key)
+        if scan := instruction.get('scan'):
+            fragments.setdefault(scan, []).append(key)
+        elif instruction.get('witnesses') != []:
+            raise ValueError('A source instruction requires a scan; only editorial instructions have no witnesses')
         if not review_is_current(reviews.get(key, {}), instruction_review_text(instruction)):
             pending.append(key)
     front_path = source/'front.json'
@@ -53,7 +56,9 @@ def report(source):
             fragments.setdefault(page['scan'], []).append(key)
             if not review_is_current(reviews.get(key, {}), front_text(page)):
                 pending.append(key)
-    for key, payload, scans in review_payloads(readings):
+    corrections_path = source/'corrections.json'
+    corrections = json.loads(corrections_path.read_text())['corrections'] if corrections_path.exists() else []
+    for key, payload, scans in review_payloads(readings, corrections):
         for scan in scans:
             fragments.setdefault(scan, []).append(key)
         if not review_is_current(reviews.get(key, {}), payload):
@@ -63,8 +68,14 @@ def report(source):
     for path in (source/'independent').rglob('*.json'):
         payload = json.loads(path.read_text())
         if isinstance(payload, dict) and payload.get('reviewer'):
-            independently_read.update(scan for p in payload.get('pages', [])
-                                      if (scan := p['scan'].removesuffix('.jpg')) in inventory_scans)
+            for page in payload.get('pages', []):
+                if not isinstance(page, dict) or page.get('scan') is None:
+                    continue
+                scan = str(page['scan']).removesuffix('.jpg')
+                if scan.isdecimal():
+                    scan = 's'+scan
+                if scan in inventory_scans:
+                    independently_read.add(scan)
     complete_pages = []
     for page in pages:
         scan = 's'+str(page['scan_page'])

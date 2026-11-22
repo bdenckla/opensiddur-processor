@@ -1733,3 +1733,48 @@ class EditionWiringTest(unittest.TestCase):
             'pages': [{'scan': s} for s in ['s1.jpg', 's1', 's2', 's1-detail.png', 's5']]}))
         result = report(self.source)
         self.assertEqual(result['leaves_independently_read'], 2)
+
+    def test_editorial_instruction_needs_review_but_adds_no_source_leaf(self):
+        self.save('pages', {'pages': [{'scan_page': n} for n in range(1, 5)]})
+        self.readings['documentary_instructions'] = {'editorial': {
+            'text': 'The cantor repeats aloud.', 'language': 'en', 'witnesses': []}}
+        self.save('readings', self.readings)
+        result = report(self.source)
+        self.assertEqual(result['leaves_with_transcribed_excerpts'], 4)
+        self.assertIn('instruction/editorial', result['pending_unit_reviews'])
+        self.readings['documentary_instructions']['editorial']['witnesses'] = ['he']
+        self.save('readings', self.readings)
+        with self.assertRaisesRegex(ValueError, 'source instruction requires a scan'):
+            report(self.source)
+
+    def test_numeric_blind_scan_designations_do_not_duplicate_or_invent_leaves(self):
+        self.save('pages', {'pages': [{'scan_page': n} for n in range(1, 5)]})
+        independent = self.source/'independent'
+        independent.mkdir()
+        (independent/'reader.json').write_text(json.dumps({'reviewer': {'model': 'second'},
+            'pages': [{'scan': s} for s in [1, 's1', 2, 's2.jpg', 0, 5, 's3-detail.png', None]]}))
+        result = report(self.source)
+        self.assertEqual(result['leaves_independently_read'], 2)
+        self.assertEqual(result['leaves_fully_transcribed_and_reviewed'], 0)
+
+    def test_progress_uses_current_corrections_in_realization_receipts(self):
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.realizations import review_payloads
+        from opensiddur.importer.scan.review import reading_hash
+        self.save('pages', {'pages': [{'scan_page': n} for n in range(1, 5)]})
+        self.readings['units'][0]['review_encoding'] = True
+        self.save('readings', self.readings)
+        correction = {'id': 'source_typo', 'file': PROJECTS['en']+'/first.xml',
+                      'sic': 'Invented', 'corr': 'Recorded'}
+        self.save('corrections', {'corrections': [correction]})
+        self.save('reviews', {key: {'complete': True, 'primary_model': 'first',
+            'independent_model': 'second', 'primary_sha256': 'primary',
+            'independent_sha256': 'secondary', 'evidence': 'review.json',
+            'final_sha256': reading_hash(payload)}
+            for key, payload, _ in review_payloads(self.readings, [correction])})
+        result = report(self.source)
+        self.assertFalse(any(key.startswith('realization/') for key in result['pending_unit_reviews']))
+        correction['corr'] = 'Different'
+        self.save('corrections', {'corrections': [correction]})
+        result = report(self.source)
+        self.assertIn('realization/first/en', result['pending_unit_reviews'])
+        self.assertNotIn('realization/first/he', result['pending_unit_reviews'])
