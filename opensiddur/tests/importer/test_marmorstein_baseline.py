@@ -28,12 +28,16 @@ class LiteralBaselineTest(unittest.TestCase):
         self.assertEqual(snapshot({'units':[unit]})['amidah_qedushah'],
                          json.loads(BASELINE.read_text())['amidah_qedushah'])
 
-    def test_integrated_source_baseline_matches_fixed_importer_fixture(self):
+    def test_integrated_source_baseline_extends_fixed_importer_fixture(self):
         readings=accepted_readings()
         if any(u.get('canonical_parts') for u in readings['units']):
             self.assertIn('accepted_literal_baseline',readings)
             path=SOURCETEXTS_ROOT/BOOK/readings['accepted_literal_baseline']
-            self.assertEqual(json.loads(path.read_text()),json.loads(BASELINE.read_text()))
+            current = json.loads(path.read_text())
+            fixed = json.loads(BASELINE.read_text())
+            self.assertTrue(fixed.keys() <= current.keys())
+            self.assertEqual({key: current[key] for key in fixed}, fixed)
+            validate_baseline(readings, current)
 
     def test_only_mapping_additions_are_allowed_and_raw_fragment_changes_fail(self):
         original=accepted_readings();baseline=json.loads(BASELINE.read_text());changed=deepcopy(original)

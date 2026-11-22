@@ -123,6 +123,19 @@ class EditionWiringTest(unittest.TestCase):
         self.assertEqual([''.join(part.itertext()) for part in notes[0]], ['עמוד', 'Stand.'])
         self.assertEqual(notes[0].getnext().get('target'), BASE+'invented')
 
+    def test_expanded_action_rubric_retains_instruction_style(self):
+        self.readings['expanded_order'] = [{
+            'section': 'ark', 'heading': None,
+            'rubrics': {'en': {'text': 'Open the Ark.', 'type': 'instruction'}},
+            'order': [{'unit': 'first'}]}]
+        self.save('readings', self.readings)
+        self.generate(draft=True)
+        root = etree.parse(str(self.projects/EXPANDED/'index.xml'))
+        note = root.find('.//'+T+'body//'+T+'note')
+        self.assertEqual(note.get('type'), 'instruction')
+        self.assertEqual(''.join(note.itertext()), 'Open the Ark.')
+        self.assertIsNone(note.get('rend'))
+
     def test_mid_page_direction_keeps_its_link_without_an_extra_page_break(self):
         self.readings['navigation']['return']['page_start'] = False
         self.save('readings', self.readings)
@@ -132,6 +145,19 @@ class EditionWiringTest(unittest.TestCase):
         link = index.find('.//'+T+'ref[@type="page"]')
         self.assertEqual(link.get('target'), BASE+'invented@'+PROJECTS['he'])
         self.assertEqual(link.getparent().get('type'), 'optional-page-reference')
+
+    def test_documentary_page_only_occurrence_is_language_specific(self):
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.build import documentary_order
+        order = [{'page_break': {'en': {'scan': 's13', 'printed_page': '7'}}}]
+        english, hebrew = etree.Element(T+'div'), etree.Element(T+'div')
+        documentary_order(english, order, {}, {}, 'en', PROJECTS['en'])
+        documentary_order(hebrew, order, {}, {}, 'he', PROJECTS['he'])
+        self.assertEqual(len(hebrew), 0)
+        self.assertEqual(len(english), 1)
+        page = english[0]
+        self.assertEqual((page.tag, page.get('ed'), page.get('n')), (T+'pb', '1965', '7'))
+        self.assertTrue(page.get('facs').endswith('/page/n12.jpg'))
+        self.assertFalse(''.join(english.itertext()))
 
     def test_unreviewed_or_stale_text_cannot_replace_a_reviewed_build(self):
         with self.assertRaisesRegex(ValueError, 'review pending'):
@@ -1036,6 +1062,52 @@ class EditionWiringTest(unittest.TestCase):
         paragraph = root.find('.//'+T+'body/'+T+'div/'+T+'p')
         self.assertEqual(printed_text(paragraph).strip(), 'אב־גד')
         self.assertEqual(len(paragraph.findall(T+'pb')), 2)
+
+    def test_word_split_across_source_pages_marks_a_nonbreaking_page_boundary(self):
+        fragments = [{'scan': 's1', 'text': 'fore', 'join_next': True},
+                     {'scan': 's2', 'text': 'ver'}]
+        self.readings['units'][0]['languages']['en'] = [{'fragments': fragments}]
+        self.save('readings', self.readings)
+        self.generate(draft=True)
+        root = etree.parse(str(self.projects/PROJECTS['en']/'first.xml'))
+        paragraph = root.find('.//'+T+'body/'+T+'div/'+T+'p')
+        self.assertEqual(printed_text(paragraph).strip(), 'forever')
+        pages = paragraph.findall(T+'pb')
+        self.assertIsNone(pages[0].get('break'))
+        self.assertEqual(pages[1].get('break'), 'no')
+        self.assertTrue(pages[1].get('facs').endswith('/page/n1.jpg'))
+
+        fragments[0].pop('join_next')
+        self.save('readings', self.readings)
+        self.generate(draft=True)
+        root = etree.parse(str(self.projects/PROJECTS['en']/'first.xml'))
+        paragraph = root.find('.//'+T+'body/'+T+'div/'+T+'p')
+        self.assertEqual(printed_text(paragraph).strip(), 'fore ver')
+        self.assertIsNone(paragraph.findall(T+'pb')[1].get('break'))
+
+    def test_biblical_quotation_spans_its_page_break_without_swallowing_following_text(self):
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.build import unit_document
+        verse = 'urn:x-opensiddur:text:bible:psalms/1/1'
+        context = BASE+'example/quotes/psalms_1'
+        unit = {'stem': 'example', 'urn': BASE+'example', 'title': {'en': 'Example'},
+                'languages': {'en': [
+                    {'source': verse, 'source_reference': verse,
+                     'chapter_corresp': context, 'source_reference_corresp': context+'/1',
+                     'end_reference': True,
+                     'fragments': [{'scan': 's1', 'text': 'First half'},
+                                   {'scan': 's2', 'text': 'second half.'}]},
+                    {'fragments': [{'scan': 's2', 'text': 'Unrelated.', 'page_start': False}]}]}}
+        root = unit_document(unit, 'en', draft=True)
+        spans = root.findall('.//'+T+'seg[@source="'+verse+'"]')
+        self.assertEqual(len(spans), 1)
+        self.assertEqual(printed_text(spans[0]).strip(), 'First half second half.')
+        self.assertEqual(len(spans[0].findall(T+'pb')), 1)
+        self.assertTrue(spans[0].find(T+'pb').get('facs').endswith('/page/n1.jpg'))
+        paragraph = spans[0].getparent()
+        self.assertEqual([(m.get('unit'), bool(m.get('corresp')))
+                          for m in paragraph.findall(T+'milestone')],
+                         [('chapter', True), ('verse', True), ('verse', False), ('chapter', False)])
+        self.assertNotIn('Unrelated', ''.join(spans[0].itertext()))
 
     def test_refrain_cue_is_outside_the_reusable_stanza_and_language_is_preserved(self):
         unit = self.readings['units'][0]

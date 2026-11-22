@@ -434,6 +434,13 @@ def unit_document(unit, lang, draft):
             fragments = deepcopy(fragments)
             fragments[0]['text'] = fragments[0]['text'][1:]
             fragments[-1]['text'] = fragments[-1]['text'][:-1]
+        # A page boundary does not divide a biblical quotation's semantic span.
+        # Keep plain prose quotations together; verse/chapter markers remain
+        # outside the span and continue to delimit the complete reference.
+        continuous_source = (segment.get('source_reference') and segment.get('source')
+                             and not poetry and len(fragments) > 1
+                             and not any(f.get('line') or f.get('instructions') for f in fragments))
+        source_span = None
         for index, fragment in enumerate(fragments):
             if 'line' in fragment:
                 if not poetry or segment_conditions:
@@ -447,8 +454,11 @@ def unit_document(unit, lang, draft):
                 attributes = {'ed': '1965', 'facs': page_image_url(IDENTIFIER, int(fragment['scan'][1:])-1, size='')}
                 if fragment.get('printed_page') is not None:
                     attributes['n'] = fragment['printed_page']
+                if index and fragments[index-1].get('join_next'):
+                    attributes['break'] = 'no'
                 if fragment.get('page_start', True):
-                    element(paragraph, 'pb', **attributes)
+                    element(source_span if source_span is not None else paragraph,
+                            'pb', **attributes)
                 current_page = fragment['scan']
             if index == 0 and segment.get('edition_label'):
                 close_references()
@@ -602,7 +612,12 @@ def unit_document(unit, lang, draft):
                 attributes = {'source': segment['source']}
                 if segment.get('source_type'):
                     attributes['type'] = segment['source_type']
-                content = element(paragraph, 'seg', **attributes)
+                if continuous_source:
+                    if source_span is None:
+                        source_span = element(paragraph, 'seg', **attributes)
+                    content = source_span
+                else:
+                    content = element(paragraph, 'seg', **attributes)
             if fragment.get('quotations') and any(fragment.get(key) for key in (
                     'alternatives', 'qere_ketiv', 'expansion', 'abbreviations',
                     'uncertain_characters', 'enlarged_letters')):
@@ -712,7 +727,9 @@ def unit_document(unit, lang, draft):
             owns_separator = (next_fragment and next_fragment['text'] and
                               (next_fragment['text'][0].isspace() or next_fragment['text'][0] in ',.;:!?)]'))
             if not owns_separator and not fragment.get('join_next') and not fragment['text'].rstrip().endswith('־'):
-                append_words(paragraph, ' ')
+                separator_parent = (source_span if continuous_source and index+1 < len(fragments)
+                                    else paragraph)
+                append_words(separator_parent, ' ')
         if segment.get('end_reference'):
             close_references()
         while segment_condition_scopes and segment_condition_scopes[-1][0] == segment_index:
@@ -886,7 +903,8 @@ def expanded_order(parent, order, readings, by_stem):
                         type='description', corresp='urn:x-opensiddur:instruction:role/'+role).set(XML+'lang', 'he')
             for language, rubric in occurrence.get('rubrics', {}).items():
                 for text in rubric if isinstance(rubric, list) else [rubric]:
-                    note = element(content, 'note', type='description')
+                    kind = text.get('type', 'description') if isinstance(text, dict) else 'description'
+                    note = element(content, 'note', type=kind)
                     note.set(XML+'lang', language)
                     rubric_words(note, text, language)
             if occurrence.get('declarations'):
@@ -1095,6 +1113,11 @@ def documentary_order(div, order, readings, by_stem, lang, project):
                                    target='#'+editorial['anchor'], resp=editorial['resp'])
                     note.set(XML+'lang', lang)
                     words(element(note, 'p'), editorial['text'], lang)
+        elif 'page_break' in occurrence:
+            page = occurrence['page_break'].get(lang)
+            if page:
+                element(div, 'pb', ed='1965', n=page['printed_page'],
+                        facs=page_image_url(IDENTIFIER, int(page['scan'][1:])-1, size=''))
         elif 'instruction' in occurrence:
             instruction = readings['documentary_instructions'][occurrence['instruction']]
             if lang in instruction['witnesses']:

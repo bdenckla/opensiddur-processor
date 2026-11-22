@@ -3,9 +3,11 @@
 Contribution to [issue 214](https://github.com/opensiddur/opensiddur-processor/issues/214).
 The complete project is the 355-leaf Archive item
 `mahzor-lyom-rishon-shel-rosh-hashanah-day-one-jenny-marmorstein-1965`.
-**Accepted current encoding: 252 complete scan pages of 355, 720 literal Hebrew/English witnesses and 87 canonical realization payloads.** Coverage comprises PDF1–251 plus the earlier Hebrew-only appendix pilot351. PDF252–253 remain partial: the accepted text ends at HaMelekh HaQadosh, with unencoded Attah Vechartanu tails now included in the active PDF252–275 installment. This corrects the previous whole-page count without revoking any of the720 accepted literal witnesses. The installment is accepted through HaMelekh HaQadosh; all source, importer, generated encoding, identity, alignment, recitation-order and independent PDF/electronic reviews are complete. All 756 XML files validate. The two historical PDF 8 Ashrei corrections are independently adjudicated with exact before/after baseline hashes. No reading dispute remains in that accepted material. The active, unaccepted installment covers the tails of PDF252–253 and all of PDF254–275, ending after the Malkhuyot shofar prayers. Frozen primary and blind secondary readings are recorded; image reconciliation, remaining source adjudication (human375–386 are applied), complete encoding/alignment/order review and final exports remain pending. Its acceptance would bring complete-page coverage to276/355, leaving79 leaves and starting the next installment at Zikhronot on276.
+**Accepted current encoding: 294 complete scan pages of 355, 803 literal Hebrew/English witnesses and 182 canonical realization payloads.** Coverage is PDF 1–293 plus the Hebrew-only appendix pilot on 351. All currently encoded material is accepted: source images, human decisions through 444, guideline adherence, canonical reuse, bilingual alignment, recitation order and final PDF/electronic output. The current source acceptance record is `musaf_s276_s293_acceptance.json`. All 843 generated XML files validate. The frozen baseline protects all 803 literal witnesses; the previous 766 remain unchanged.
 
-**Remaining volume: 101 unencoded scan pages; continue at PDF 254 with Attah Vechartanu.** The coordinated digitization PRs remain drafts while this work continues. Current acceptance and validation evidence is recorded in `musaf_s238_s253_acceptance.json`:143 importer tests/126 subtests;125 registry/feature tests/138 subtests;472 exporter XSLT/typography tests/179 subtests;60 actor-cue page-edge positions;36 rite/optional-clause print states;12 source-boundary cases;4 morning service selections;24 batch browser cases and 3 whole-book browser checks. All 3 cumulative PDFs have no overfull boxes, missing glyphs or unresolved internal destinations.
+**Remaining volume: 61 unencoded scan pages; continue at PDF 294 with Shofarot.** This installment completes the weekday Zekher (44 strophes), Shabbat Efchad (46 strophes), conditional Noah placement, shared scripture chain, circumcision insertion, response customs and complete Atah Nigleita opening paragraph. No new source question remains. Checks include 165 importer tests, 56 print/electronic compilations, 56 per-language primary-page-marker checks, 36 exact response-count checks, 14 canonical projections, 38 quotation extents and four full morning selections. Final previews contain 80 Hebrew, 226 parallel and 253 expanded PDF pages; all six desktop/mobile browser states pass.
+
+The final independent export review found a collision of notes 128/129 on the parallel PDF's page 206. The separate PR 310 now groups notes at their actual flattened-stream anchor, preserves every apparatus entry, and separates heading/body locations. All 375 XSLT tests pass, and independent code and final visual reviews approve the correction. Raster comparison of all 226 pages finds only the marker box on page 206 changed. Hebrew/expanded TeX remains byte-identical. The combined preview runtime is `a8fbf98`; exporter dependencies remain separate in PRs 310/312/313. The digitization PRs remain drafts because the volume is incomplete. Historical checkpoints below retain their original scope and counts.
 
 [Exporter PR 311](https://github.com/opensiddur/opensiddur-processor/pull/311) is merged. It supplies occurrence-local named-wording selection through `opensiddur:variant` and `j:option/@corresp`; use it for genuine textual differences rather than service/calendar conditions. The accepted export checkpoint additionally used the separate preview fixes in PRs 310, 312 and 313. These exporter dependencies remain distinct from source acceptance. The coordinated digitization PRs remain drafts while work on the volume continues.
 
@@ -1597,7 +1599,7 @@ none of these exporter fixes is folded into this digitization change.
 
 ### Accepted Malkhuyot installment through PDF 275
 
-The current acceptance record is sourcetexts
+The acceptance record for that earlier installment is sourcetexts
 `musaf_s252_s275_acceptance.json`: 276 of 355 complete leaves (PDF 1–275
 and the Hebrew-only appendix pilot on 351), 428 units, 766 Hebrew/English
 literal witnesses and 145 canonical realization payloads. The earlier
@@ -1631,3 +1633,21 @@ separate PRs310/312/313. The combined QA runtime is 4dbe21c; the final note-orde
 fix in PR310 keeps explicit body-anchor notes out of containing headings.
 All 95 Hebrew note marks are now consecutive. The digitization PRs remain draft
 because the rest of the volume has not been encoded.
+
+### Printing selectors and Shofarot boundary
+
+For this digitization, local `opensiddur:variant` condition URNs may select
+source-attested printing differences in orthography, pointing or punctuation,
+including per-language `first_printing` and `zikhronot_printing` readings.
+These are edition-realization controls, not new canonical text identities or
+community rites. The source occurrence declares its own printing locally;
+shared prayer identities remain unchanged. This follows the already accepted
+Attah Vechartanu printing selections and preserves the two Noah witnesses.
+
+`prayer:amidah/attah_nigleita` identifies the complete opening paragraph through
+הופעת, not the subsequent Shofarot scripture chain. In the next installment,
+encode the ensuing ככתוב בתורתך formula separately from that prayer identity.
+The earlier quiet-prayer source attribution includes that formula: reconcile
+its attribution boundary when adding the Shofarot verses, preserving every
+already accepted source word and documenting the metadata change. It must not
+create a second recitation of the formula.
