@@ -1,98 +1,137 @@
+import hashlib
 import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from opensiddur.importer.miqra_al_pi_hamasorah import download
 from opensiddur.importer.util.pages import (
     miqra_al_pi_hamasorah_data_directory,
-    miqra_al_pi_hamasorah_sheets_directory,
+    miqra_al_pi_hamasorah_plus_directory,
 )
 
-FIXTURE_XLSX = (
-    Path(__file__).resolve().parents[2] / "fixtures" / "miqra_minimal.xlsx"
-)
+COMMIT = "0123456789abcdef0123456789abcdef01234567"
+GENESIS = b'{"header": {}, "book39s": []}\n'
+SONG = b'{"header": {}, "book39s": [1]}\n'
+LICENSE = b"Attribution: Hebrew Wikisource\n"
+
+
+class FakeClient:
+    """GitHub as the downloader sees it: two directory listings and the raw files."""
+
+    def __init__(self, files: dict[str, bytes], commit: str = COMMIT) -> None:
+        self.files = files
+        self.commit = commit
+        self.requests: list[str] = []
+
+    def _entry(self, path: str) -> dict:
+        data = self.files[path]
+        return {"name": path.rsplit("/", 1)[1], "type": "file", "size": len(data),
+                "sha": download.git_blob_sha(data)}
+
+    def get_json(self, url: str):
+        self.requests.append(url)
+        directory = url.split("/contents/", 1)[1].split("?", 1)[0]
+        prefix = directory.replace("%20", " ") + "/"
+        entries = [self._entry(p) for p in self.files if p.startswith(prefix) and "/" not in p[len(prefix):]]
+        return entries + [{"name": "provenance.md", "type": "file", "size": 1, "sha": "x"}]
+
+    def get_bytes(self, url: str, *, accept: str | None = None) -> bytes:
+        self.requests.append(url)
+        if accept == "application/vnd.github.sha":
+            return self.commit.encode("ascii")
+        path = url.split(f"/{self.commit}/", 1)[1].replace("%20", " ")
+        return self.files[path]
+
+
+def _files() -> dict[str, bytes]:
+    return {
+        "MAM-parsed/plus/A1-Genesis.json": GENESIS,
+        "MAM-parsed/plus/E1-Song of Songs.json": SONG,
+        "MAM-parsed/LICENSE.md": LICENSE,
+    }
 
 
 class TestDownloadMiqra(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.sourcetexts_root = Path(self.tmp.name)
+        self.data_dir = miqra_al_pi_hamasorah_data_directory(self.sourcetexts_root)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def _mock_response(self) -> MagicMock:
-        response = MagicMock()
-        response.raise_for_status = MagicMock()
-        response.content = FIXTURE_XLSX.read_bytes()
-        return response
+    def _manifest(self) -> dict:
+        return json.loads((self.data_dir / "manifest.json").read_text(encoding="utf-8"))
 
-    @patch("opensiddur.importer.miqra_al_pi_hamasorah.download.requests.get")
-    def test_download_writes_tsv_and_manifest(self, mock_get: MagicMock) -> None:
-        mock_get.return_value = self._mock_response()
+    def test_download_writes_files_and_manifest(self) -> None:
+        client = FakeClient(_files())
+        result = download.download(self.sourcetexts_root, commit=COMMIT, client=client)
 
-        download.download_miqra(self.sourcetexts_root)
+        plus_dir = miqra_al_pi_hamasorah_plus_directory(self.sourcetexts_root)
+        self.assertEqual((plus_dir / "A1-Genesis.json").read_bytes(), GENESIS)
+        self.assertEqual((plus_dir / "E1-Song of Songs.json").read_bytes(), SONG)
+        self.assertEqual((self.data_dir / "LICENSE.md").read_bytes(), LICENSE)
+        self.assertFalse((plus_dir / "provenance.md").exists())
+        self.assertTrue(result.manifest_written)
 
-        data_dir = miqra_al_pi_hamasorah_data_directory(self.sourcetexts_root)
-        sheets_dir = miqra_al_pi_hamasorah_sheets_directory(self.sourcetexts_root)
+        manifest = self._manifest()
+        self.assertEqual(manifest["repository"], download.REPOSITORY)
+        self.assertEqual(manifest["commit"], COMMIT)
+        song = next(f for f in manifest["files"] if f["path"] == "plus/E1-Song of Songs.json")
+        self.assertEqual(
+            song["url"],
+            f"https://raw.githubusercontent.com/bdenckla/MAM-basics/{COMMIT}/MAM-parsed/plus/E1-Song%20of%20Songs.json",
+        )
+        self.assertEqual(song["bytes"], len(SONG))
+        self.assertEqual(song["sha256"], hashlib.sha256(SONG).hexdigest())
 
-        torah_tsv = sheets_dir / "torah.tsv"
-        readme_tsv = sheets_dir / "readme.tsv"
-        self.assertTrue(torah_tsv.is_file())
-        self.assertTrue(readme_tsv.is_file())
-        self.assertFalse((sheets_dir / "unknowntab.tsv").exists())
+    def test_unchanged_run_is_a_no_op(self) -> None:
+        download.download(self.sourcetexts_root, commit=COMMIT, client=FakeClient(_files()))
+        before = (self.data_dir / "manifest.json").read_bytes()
+        client = FakeClient(_files())
+        result = download.download(self.sourcetexts_root, commit=COMMIT, client=client)
+        self.assertEqual(client.requests, [])
+        self.assertFalse(result.manifest_written)
+        self.assertEqual((self.data_dir / "manifest.json").read_bytes(), before)
 
-        torah_lines = torah_tsv.read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(torah_lines), 2)
-        self.assertIn("בְּרֵאשִׁית", torah_lines[1])
+    def test_a_branch_is_resolved_to_its_commit(self) -> None:
+        client = FakeClient(_files())
+        result = download.download(self.sourcetexts_root, commit="main", client=client)
+        self.assertEqual(result.commit, COMMIT)
+        self.assertEqual(self._manifest()["commit"], COMMIT)
+        self.assertTrue(client.requests[0].endswith("/repos/bdenckla/MAM-basics/commits/main"))
 
-        manifest_path = data_dir / "manifest.json"
-        self.assertTrue(manifest_path.is_file())
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["spreadsheet_id"], download.SPREADSHEET_ID)
-        slugs = {s["slug"] for s in manifest["sheets"]}
-        self.assertIn("torah", slugs)
-        self.assertIn("readme", slugs)
-        for entry in manifest["sheets"]:
-            self.assertIn("sha256", entry)
-            self.assertEqual(len(entry["sha256"]), 64)
+    def test_a_file_that_does_not_match_its_listing_is_refused(self) -> None:
+        client = FakeClient(_files())
+        client.get_bytes = lambda url, accept=None: b"tampered"
+        with self.assertRaises(download.DownloadError):
+            download.download(self.sourcetexts_root, commit=COMMIT, client=client)
+        self.assertFalse((self.data_dir / "manifest.json").exists())
 
-        xlsx_files = list(data_dir.glob("*.xlsx"))
-        self.assertEqual(xlsx_files, [])
+    def test_only_files_a_previous_download_recorded_are_deleted(self) -> None:
+        download.download(self.sourcetexts_root, commit=COMMIT, client=FakeClient(_files()))
+        sheets = self.data_dir / "sheets" / "torah.tsv"
+        sheets.parent.mkdir(parents=True)
+        sheets.write_text("retired\n", encoding="utf-8")
+        files = _files()
+        del files["MAM-parsed/plus/E1-Song of Songs.json"]
+        other = "fedcba9876543210fedcba9876543210fedcba98"
+        result = download.download(self.sourcetexts_root, commit=other, client=FakeClient(files, other))
+        self.assertEqual(result.deleted, ["plus/E1-Song of Songs.json"])
+        self.assertFalse((self.data_dir / "plus" / "E1-Song of Songs.json").exists())
+        self.assertTrue(sheets.exists())
 
-        mock_get.assert_called_once()
-        call_kwargs = mock_get.call_args
-        self.assertEqual(call_kwargs[0][0], download.EXPORT_XLSX_URL)
-        self.assertIn("User-Agent", call_kwargs[1]["headers"])
-
-    @patch("opensiddur.importer.miqra_al_pi_hamasorah.download.requests.get")
-    def test_dry_run_writes_nothing(self, mock_get: MagicMock) -> None:
-        download.download_miqra(self.sourcetexts_root, dry_run=True)
-
-        data_dir = miqra_al_pi_hamasorah_data_directory(self.sourcetexts_root)
-        self.assertFalse(data_dir.exists())
-        mock_get.assert_not_called()
-
-    @patch("opensiddur.importer.miqra_al_pi_hamasorah.download.logger")
-    @patch("opensiddur.importer.miqra_al_pi_hamasorah.download.requests.get")
-    def test_unknown_sheet_logs_warning(
-        self, mock_get: MagicMock, mock_logger: MagicMock
-    ) -> None:
-        mock_get.return_value = self._mock_response()
-        download.download_miqra(self.sourcetexts_root)
-
-        warning_calls = [
-            c
-            for c in mock_logger.warning.call_args_list
-            if "UnknownTab" in str(c)
-        ]
-        self.assertEqual(len(warning_calls), 1)
+    @patch("opensiddur.importer.miqra_al_pi_hamasorah.download.requests.Session")
+    def test_dry_run_writes_nothing(self, mock_session) -> None:
+        download.download(self.sourcetexts_root, dry_run=True)
+        self.assertFalse(self.data_dir.exists())
+        mock_session.assert_not_called()
 
     def test_main_dry_run_exit_code(self) -> None:
         with patch(
-            "opensiddur.importer.miqra_al_pi_hamasorah.download.download_miqra"
+            "opensiddur.importer.miqra_al_pi_hamasorah.download.download"
         ) as mock_download:
             code = download.main(
                 ["--dry-run", "--sourcetexts-root", str(self.sourcetexts_root)]

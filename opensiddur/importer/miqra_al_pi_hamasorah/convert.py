@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import csv
+import json
 import logging
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Optional
-
-import mwparserfromhell
+from typing import Any, Iterable, Iterator, Optional
 
 from opensiddur.common.constants import PROJECT_DIRECTORY
 from opensiddur.common.versification import MIQRA_PROJECT
@@ -17,32 +15,22 @@ from opensiddur.common.subverse import add_subverse_milestones
 from opensiddur.common.xslt import xslt_transform_string
 from opensiddur.importer.util.pages import (
     default_sourcetexts_root,
-    miqra_al_pi_hamasorah_sheets_directory,
+    miqra_al_pi_hamasorah_data_directory,
+    miqra_al_pi_hamasorah_plus_directory,
 )
 from opensiddur.importer.util.prettify import prettify_xml
 from opensiddur.importer.util.validation import validate
 from opensiddur.importer.miqra_al_pi_hamasorah.canonical_verses import annotate_canonical_verses
-from opensiddur.importer.miqra_al_pi_hamasorah.miqra_wikitext import (
-    wikitext_to_intermediate_xml,
+from opensiddur.importer.miqra_al_pi_hamasorah.miqra_plus import (
+    MIQRA_NS,
+    MW_NS,
+    PlusFormatError,
+    PlusToIntermediate,
 )
 
 logger = logging.getLogger(__name__)
 
 MIQRA_TO_TEI_XSLT = Path(__file__).parent / "miqra_to_tei.xslt"
-
-# Biblical-book tabs only (5-column A–E schema). Do not ingest special/auto_edits/etc.
-BIBLICAL_TSV_SLUGS = frozenset(
-    {
-        "torah",
-        "neviim_rishonim",
-        "neviim_acharonim",
-        "sifrei_emet",
-        "chamisha_megillot",
-        "ketuvim_aharonim",
-    }
-)
-
-_NON_VERSE_ROW_IDS = frozenset({"0", "תתת"})
 
 
 def make_project_directory(project_dir: Path | None = None) -> Path:
@@ -179,6 +167,7 @@ def header(
     title_he: Optional[str],
     title_en: str,
     *,
+    source_note: str,
     project_id: str = MIQRA_PROJECT,
     namespace: str = "bible",
     entrypoint: str = "tanakh",
@@ -211,7 +200,7 @@ def header(
           <tei:ref target="https://he.wikisource.org/wiki/%D7%9E%D7%A7%D7%A8%D7%90_%D7%A2%D7%9C_%D7%A4%D7%99_%D7%94%D7%9E%D7%A1%D7%95%D7%A8%D7%94#%D7%A8%D7%90%D7%A9">Hebrew Wikisource</tei:ref>
         </tei:distributor>
         <tei:idno type="url">https://he.wikisource.org/wiki/%D7%9E%D7%A7%D7%A8%D7%90_%D7%A2%D7%9C_%D7%A4%D7%99_%D7%94%D7%9E%D7%A1%D7%95%D7%A8%D7%94#%D7%A8%D7%90%D7%A9</tei:idno>
-        <tei:note xml:lang="en">Prepared by Avi Kadish, based on Hebrew Wikisource material; distributed via a public Google Sheet.</tei:note>
+        <tei:note xml:lang="en">{_xml_escape(source_note)}</tei:note>
       </tei:bibl>
     </tei:sourceDesc>
   </tei:fileDesc>
@@ -272,12 +261,11 @@ def _xml_escape(text: str) -> str:
     )
 
 
-_PAGE_KEY_RE = re.compile(r"^\s*(?:(?:ספר|מגילת)\s+)?(?P<book>[^/]+)\s*/\s*(?P<rest>.+?)\s*$")
-
-# Some sheet tabs group several books under one outer "ספר X" label, with the
-# actual sub-book abbreviated and embedded alongside the chapter numeral in
-# the second field (e.g. "ספר שמואל/שמ""א א" -> sub-book שמ"א, chapter א).
-_SUBBOOK_ABBREVIATIONS = {
+# A book that is a sub-book of one of the 24 books is named by its abbreviation or by its own
+# name (sub_book_name: "שמ\"א", "הושע", "נחמיה"); any other by its 24-book name without its
+# "ספר " or "מגילת " (book24_name: "ספר בראשית", "מגילת רות").
+_BOOK24_PREFIX = re.compile(r"^(?:ספר|מגילת) ")
+_SUB_BOOK_NAMES = {
     'שמ"א': "שמואל א",
     'שמ"ב': "שמואל ב",
     'מל"א': "מלכים א",
@@ -286,219 +274,148 @@ _SUBBOOK_ABBREVIATIONS = {
     'דה"ב': "דברי הימים ב",
 }
 
-
-def _split_page_key(page_key: str) -> Optional[tuple[str, str]]:
-    """Resolve a page key to (book_name_he, chapter_token), or None if unparseable."""
-    m = _PAGE_KEY_RE.match(page_key or "")
-    if not m:
-        return None
-    outer_book = m.group("book").strip()
-    rest = m.group("rest").strip()
-    parts = rest.split(None, 1)
-    if len(parts) == 2:
-        sub_label, chapter_token = parts
-        book = _SUBBOOK_ABBREVIATIONS.get(sub_label, sub_label)
-        return book, chapter_token
-    return outer_book, rest
+_NUMBER_KEY = re.compile(r"[1-9][0-9]*")
+_COMMIT = re.compile(r"[0-9a-f]{40}")
 
 
-def _book_key_from_page_key(page_key: str) -> Optional[str]:
-    parsed = _split_page_key(page_key)
-    return parsed[0] if parsed else None
+def _book_name_he(book39: dict[str, Any]) -> str:
+    """The name TANAKH_INDEX gives a plus book39."""
+    sub_book_name = book39["sub_book_name"]
+    if sub_book_name is not None:
+        return _SUB_BOOK_NAMES.get(sub_book_name, sub_book_name)
+    return _BOOK24_PREFIX.sub("", book39["book24_name"])
 
 
-_HEBREW_NUM_RE = re.compile(r"^[\u05d0-\u05ea\"׳״\s]+$")
+@dataclass(frozen=True)
+class Attribution:
+    """An attribution MAM's licence asks for: its statement, then the page to link to."""
+
+    statement: str
+    link_text: str
+    url: str
 
 
-def _hebrew_numeral_to_int(value: str) -> Optional[int]:
+# The two attributions in LICENSE.md, each a line followed by a Markdown link to its page.
+_ATTRIBUTIONS = {
+    "en": re.compile(
+        r"^(?P<statement>Attribution in English and all languages other than Hebrew[^\r\n]*)"
+        r"\s*\[(?P<text>[^\]\r\n]+)\]\((?P<url>[^)\s]+)\)",
+        re.MULTILINE,
+    ),
+    "he": re.compile(
+        r"^(?P<statement>הייחוס בעברית[^\r\n]*)\s*\[(?P<text>[^\]\r\n]+)\]\((?P<url>[^)\s]+)\)",
+        re.MULTILINE,
+    ),
+}
+
+
+def read_attributions(licence: str) -> dict[str, Attribution]:
+    """The English and Hebrew attributions MAM-parsed's LICENSE.md asks for.
+
+    The file repeats MAM's statement for historical reasons, so a match may occur more than
+    once; every occurrence must be the same.
     """
-    Very small Hebrew-numeral parser for verse/chapter labels.
-
-    Handles single-letter verse labels (א,ב,ג,...) and common gershayim/geresh marks.
-    For anything more complex, we return None and fall back to original.
-    """
-    s = (value or "").strip()
-    if not s:
-        return None
-    s = s.replace("״", "").replace("׳", "").replace("'", "").replace('"', "").strip()
-    if not s:
-        return None
-    if not _HEBREW_NUM_RE.match(s):
-        return None
-
-    # Simple gematria for Hebrew letters
-    mapping = {
-        "א": 1,
-        "ב": 2,
-        "ג": 3,
-        "ד": 4,
-        "ה": 5,
-        "ו": 6,
-        "ז": 7,
-        "ח": 8,
-        "ט": 9,
-        "י": 10,
-        "כ": 20,
-        "ך": 20,
-        "ל": 30,
-        "מ": 40,
-        "ם": 40,
-        "נ": 50,
-        "ן": 50,
-        "ס": 60,
-        "ע": 70,
-        "פ": 80,
-        "ף": 80,
-        "צ": 90,
-        "ץ": 90,
-        "ק": 100,
-        "ר": 200,
-        "ש": 300,
-        "ת": 400,
-    }
-
-    total = 0
-    for ch in s:
-        if ch.isspace():
-            continue
-        v = mapping.get(ch)
-        if v is None:
-            return None
-        total += v
-    return total if total > 0 else None
+    attributions: dict[str, Attribution] = {}
+    for lang, pattern in _ATTRIBUTIONS.items():
+        found = {
+            Attribution(m.group("statement").strip(), m.group("text"), m.group("url"))
+            for m in pattern.finditer(licence)
+        }
+        if len(found) != 1:
+            raise PlusFormatError(f"LICENSE.md: expected one {lang} attribution, found {found}")
+        attributions[lang] = found.pop()
+    return attributions
 
 
-def _normalize_to_arabic_numerals(value: str) -> str:
-    s = (value or "").strip()
-    if not s:
-        return ""
-    if s.isdigit():
-        return s
-    n = _hebrew_numeral_to_int(s)
-    if n is not None:
-        return str(n)
-    return ""
+@dataclass
+class MamSource:
+    """The downloaded MAM-parsed plus files and what the manifest says of them."""
+
+    repository: str
+    commit: str
+    plus_path: str
+    attributions: dict[str, Attribution]
+    book39s: dict[str, dict[str, Any]]
+
+    @property
+    def repository_url(self) -> str:
+        return f"https://github.com/{self.repository}"
+
+    def note(self, *, with_commit: bool = False) -> str:
+        """The TEI header's account of the source; only the index names the commit."""
+        at_commit = f" at commit {self.commit}" if with_commit else ""
+        return (
+            "Prepared by Avi Kadish, based on Hebrew Wikisource material; taken from "
+            f"{self.plus_path} in {self.repository_url}{at_commit}, which is derived from "
+            "Hebrew Wikisource."
+        )
 
 
-def _valid_urn_segment(value: str) -> str:
-    """Return an Arabic numeral string suitable for URN path segments, or empty."""
-    normalized = _normalize_to_arabic_numerals(value)
-    return normalized if normalized.isdigit() else ""
+def load_source(sourcetexts_root: Path | None) -> MamSource:
+    """Read the download: its manifest, MAM's licence and every book of the plus files."""
+    data_dir = miqra_al_pi_hamasorah_data_directory(sourcetexts_root)
+    manifest_path = data_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Missing {manifest_path} (run download first)")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    commit = manifest.get("commit", "")
+    if not _COMMIT.fullmatch(commit):
+        raise PlusFormatError(f"{manifest_path}: no full commit SHA: {commit!r}")
+    attributions = read_attributions((data_dir / "LICENSE.md").read_text(encoding="utf-8"))
+
+    known = {book.book_name_he for book in _flatten_books(TANAKH_INDEX)}
+    book39s: dict[str, dict[str, Any]] = {}
+    for path in sorted(miqra_al_pi_hamasorah_plus_directory(sourcetexts_root).glob("*.json")):
+        for book39 in json.loads(path.read_text(encoding="utf-8"))["book39s"]:
+            name = _book_name_he(book39)
+            if name not in known or name in book39s:
+                raise PlusFormatError(f"{path.name}: unexpected book {name!r}")
+            book39s[name] = book39
+    return MamSource(
+        repository=manifest["repository"],
+        commit=commit,
+        plus_path=manifest["plus_path"],
+        attributions=attributions,
+        book39s=book39s,
+    )
 
 
-def _chapter_from_page_key(page_key: str) -> str:
-    parsed = _split_page_key(page_key)
-    if not parsed:
-        return ""
-    return _normalize_to_arabic_numerals(parsed[1])
+def _numbered(mapping: Any, what: str) -> Iterator[tuple[str, Any]]:
+    """The entries of a chapters or verses object, whose keys count up from "1"."""
+    if not isinstance(mapping, dict):
+        raise PlusFormatError(f"{what}: not an object: {mapping!r}")
+    for expected, (key, value) in enumerate(mapping.items(), start=1):
+        if not _NUMBER_KEY.fullmatch(key) or int(key) != expected:
+            raise PlusFormatError(f"{what}: key {key!r} where {expected} was expected")
+        yield key, value
 
 
-def _extract_m_pasuk(scaffold_wikitext: str) -> tuple[str, str]:
-    """
-    Extract (chapter, verse) from {{מ:פסוק|...}} when present.
-    Expected: {{מ:פסוק|<book>|<chapter>|<verse>}}.
-    """
-    parsed = mwparserfromhell.parse(scaffold_wikitext or "")
-    # Top-level only: avoid nested {{מ:פסוק|...}} inside verse text in other columns.
-    for t in parsed.filter_templates(recursive=False):
-        if str(t.name).strip() != "מ:פסוק":
-            continue
-        ch_raw = str(t.get(2).value).strip() if t.has(2) else ""
-        v_raw = str(t.get(3).value).strip() if t.has(3) else ""
-        ch = _valid_urn_segment(ch_raw)
-        v = _valid_urn_segment(v_raw)
-        if ch and v:
-            return ch, v
-    return "", ""
-
-
-def _extract_chapter_verse_numbers(page_key: str, row_id: str, scaffold_wikitext: str) -> tuple[str, str]:
-    row_id = (row_id or "").strip()
-    if row_id in _NON_VERSE_ROW_IDS or len(row_id) > 8:
-        return "", ""
-
-    ch2, v2 = _extract_m_pasuk(scaffold_wikitext)
-    if ch2 and v2:
-        return ch2, v2
-
-    chapter = _valid_urn_segment(_chapter_from_page_key(page_key))
-    verse = _valid_urn_segment(row_id)
-    if chapter and verse:
-        return chapter, verse
-    return "", ""
-
-
-def _build_book_name_map() -> dict[str, Book]:
-    # Map Hebrew book title → Book
-    books = _flatten_books(TANAKH_INDEX)
-    return {b.book_name_he: b for b in books}
-
-
-def _iter_tsv_rows(tsv_path: Path) -> Iterable[list[str]]:
-    with tsv_path.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.reader(f, delimiter="\t")
-        for row in reader:
-            yield row
-
-
-def _looks_like_header_row(row: list[str]) -> bool:
-    # Conservative heuristic: TSV export may include a header row with obvious labels.
-    joined = "\t".join(row).lower()
-    return any(k in joined for k in ("page", "row", "navigation", "scaffold", "text", "עמוד", "שורה"))
-
-
-def miqra_rows_to_intermediate(book: Book, sheets_dir: Path) -> str:
+def miqra_book_to_intermediate(
+    book: Book, book39: dict[str, Any], converter: PlusToIntermediate
+) -> str:
     """
     Build an intermediate XML document for a single book.
 
-    We scan all TSVs under sheets_dir and select rows whose page key identifies
-    the requested book.
+    Each verse of the plus book39 becomes a row, numbered by its chapter and verse keys. The
+    book39's good ending (good_ending_plus) is not read, as the sheet's good-ending rows were
+    not.
     """
-    he_to_book = _build_book_name_map()
-    target_he = book.book_name_he
-
     rows_xml: list[str] = []
-    for tsv_path in sorted(sheets_dir.glob("*.tsv")):
-        slug = tsv_path.stem
-        if slug not in BIBLICAL_TSV_SLUGS:
-            continue
-
-        first = True
-        for row in _iter_tsv_rows(tsv_path):
-            if first and _looks_like_header_row(row):
-                first = False
-                continue
-            first = False
-
-            # Biblical tabs: require the 5-column A–E schema.
-            if len(row) < 5:
-                continue
-
-            page_key = row[0]
-            row_id = row[1]
-            nav = row[2]
-            scaffold = row[3]
-            text = row[4]
-
-            book_he = _book_key_from_page_key(page_key) or ""
-            resolved = he_to_book.get(book_he)
-            if resolved is None or resolved.book_name_he != target_he:
-                continue
-
-            chapter_n, verse_n = _extract_chapter_verse_numbers(page_key, row_id, scaffold)
-            if not chapter_n or not verse_n:
-                continue
-
+    for chapter, verses in _numbered(book39["chapters"], book.file_name):
+        for verse, columns in _numbered(verses, f"{book.file_name} {chapter}"):
+            if not isinstance(columns, list) or len(columns) != 3:
+                raise PlusFormatError(f"{book.file_name} {chapter}:{verse} is not [C, D, E]")
+            nav, scaffold, text = columns
             rows_xml.append(
-                f"""<miqra:row source="{_xml_escape(slug)}" pageKey="{_xml_escape(page_key)}" rowId="{_xml_escape(row_id)}" chapter="{_xml_escape(chapter_n)}" verse="{_xml_escape(verse_n)}">
-  <miqra:nav>{wikitext_to_intermediate_xml(nav, column_c=True)}</miqra:nav>
-  <miqra:scaffold>{wikitext_to_intermediate_xml(scaffold)}</miqra:scaffold>
-  <miqra:text>{wikitext_to_intermediate_xml(text)}</miqra:text>
+                f"""<miqra:row chapter="{chapter}" verse="{verse}">
+  <miqra:nav>{converter.column(nav, "C")}</miqra:nav>
+  <miqra:scaffold>{converter.column(scaffold, "D")}</miqra:scaffold>
+  <miqra:text>{converter.column(text, "E")}</miqra:text>
 </miqra:row>"""
             )
 
     rows_joined = "\n".join(rows_xml)
-    return f"""<miqra:book xmlns:miqra="urn:x-opensiddur:miqra:intermediate" xmlns:mw="urn:x-opensiddur:mw:intermediate" fileName="{_xml_escape(book.file_name)}" bookNameHe="{_xml_escape(book.book_name_he)}" bookNameEn="{_xml_escape(book.book_name_en)}">
+    return f"""<miqra:book xmlns:miqra="{MIQRA_NS}" xmlns:mw="{MW_NS}" fileName="{_xml_escape(book.file_name)}" bookNameHe="{_xml_escape(book.book_name_he)}" bookNameEn="{_xml_escape(book.book_name_en)}">
 {rows_joined}
 </miqra:book>
 """
@@ -518,32 +435,42 @@ def intermediate_to_tei(intermediate_xml: str, *, xslt_params: Optional[dict[str
     }
 
 
-def book_file(book: Book, *, sourcetexts_root: Path | None, project_dir: Path | None) -> None:
-    sheets_dir = miqra_al_pi_hamasorah_sheets_directory(sourcetexts_root)
-    if not sheets_dir.exists():
-        raise FileNotFoundError(f"Missing Miqra sheets directory: {sheets_dir} (run download first)")
-
-    intermediate = miqra_rows_to_intermediate(book, sheets_dir)
+def book_file(
+    book: Book,
+    *,
+    source: MamSource,
+    converter: PlusToIntermediate,
+    project_dir: Path | None,
+) -> None:
+    book39 = source.book39s.get(book.book_name_he)
+    if book39 is None:
+        raise PlusFormatError(f"the MAM-parsed plus files have no {book.book_name_en}")
+    intermediate = miqra_book_to_intermediate(book, book39, converter)
     intermediate = annotate_canonical_verses(intermediate, book.file_name)
     xml_dict = intermediate_to_tei(intermediate)
-    header_xml = header(book.book_name_he, book.book_name_en, entrypoint=book.file_name)
+    header_xml = header(
+        book.book_name_he, book.book_name_en, entrypoint=book.file_name, source_note=source.note()
+    )
     tei_content = tei_file(header_xml, **xml_dict)
     make_project_directory(project_dir)
     validate_and_write_tei_file(tei_content, book.file_name, project_dir, add_subverse=True)
 
 
-def _readme_front_matter(sourcetexts_root: Path | None) -> str:
-    sheets_dir = miqra_al_pi_hamasorah_sheets_directory(sourcetexts_root)
-    readme = sheets_dir / "readme.tsv"
-    if not readme.exists():
-        return ""
-    lines: list[str] = []
-    for row in _iter_tsv_rows(readme):
-        # Preserve all cells; this is human prose.
-        line = " ".join(c for c in row if c).strip()
-        if line:
-            lines.append(line)
-    paras = "\n".join([f"<tei:p>{_xml_escape(l)}</tei:p>" for l in lines])
+def front_matter(source: MamSource) -> str:
+    """The index's front matter: where the text was taken from, and MAM's attributions."""
+    paragraphs = [
+        f'<tei:p xml:lang="en">Taken from {_xml_escape(source.plus_path)} in '
+        f"{_xml_escape(source.repository_url)} at commit {source.commit}, which is derived "
+        "from Hebrew Wikisource. Available under the CC BY-SA 4.0 licence.</tei:p>"
+    ]
+    for lang in ("en", "he"):
+        attribution = source.attributions[lang]
+        paragraphs.append(
+            f'<tei:p xml:lang="{lang}">{_xml_escape(attribution.statement)} '
+            f'<tei:ref target="{_xml_escape(attribution.url)}">'
+            f"{_xml_escape(attribution.link_text)}</tei:ref></tei:p>"
+        )
+    paras = "\n".join(paragraphs)
     return f"<tei:front xmlns:tei=\"http://www.tei-c.org/ns/1.0\">{paras}</tei:front>"
 
 
@@ -553,7 +480,13 @@ def index_urn_name(file_name: str) -> str:
     return "tanakh" if file_name == "index" else file_name
 
 
-def index_file(idx: Index, *, sourcetexts_root: Path | None, project_dir: Path | None) -> None:
+def index_file(
+    idx: Index,
+    *,
+    source: MamSource,
+    converter: PlusToIntermediate,
+    project_dir: Path | None,
+) -> None:
     transclusion_str = "\n".join(
         [
             f"""<j:transclude target="urn:x-opensiddur:text:bible:{t.file_name}"/>"""
@@ -567,22 +500,28 @@ def index_file(idx: Index, *, sourcetexts_root: Path | None, project_dir: Path |
   </tei:div>
 </tei:body>
 """
-    front = _readme_front_matter(sourcetexts_root) if idx.file_name == "index" else ""
-    header_xml = header(idx.index_title_he, idx.index_title_en, entrypoint=index_urn_name(idx.file_name))
+    is_index = idx.file_name == "index"
+    front = front_matter(source) if is_index else ""
+    header_xml = header(
+        idx.index_title_he,
+        idx.index_title_en,
+        entrypoint=index_urn_name(idx.file_name),
+        source_note=source.note(with_commit=is_index),
+    )
     tei_content = tei_file(header_xml, front=front, body=index_body)
     make_project_directory(project_dir)
     validate_and_write_tei_file(tei_content, idx.file_name, project_dir)
 
     for t in idx.transclusions:
         if isinstance(t, Index):
-            index_file(t, sourcetexts_root=sourcetexts_root, project_dir=project_dir)
+            index_file(t, source=source, converter=converter, project_dir=project_dir)
         else:
-            book_file(t, sourcetexts_root=sourcetexts_root, project_dir=project_dir)
+            book_file(t, source=source, converter=converter, project_dir=project_dir)
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Convert Miqra al pi ha-Masorah TSV sheets to JLPTEI."
+        description="Convert Miqra al pi ha-Masorah, as MAM-parsed plus JSON, to JLPTEI."
     )
     parser.add_argument(
         "--sourcetexts-root",
@@ -616,29 +555,31 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO)
     args = _build_arg_parser().parse_args(argv)
 
-    sheets_dir = miqra_al_pi_hamasorah_sheets_directory(args.sourcetexts_root)
+    data_dir = miqra_al_pi_hamasorah_data_directory(args.sourcetexts_root)
     out_dir = args.project_dir if args.project_dir is not None else _default_project_directory()
 
     if args.dry_run:
-        logger.info("Would read Miqra TSVs from %s", sheets_dir)
+        logger.info("Would read MAM-parsed plus from %s", data_dir)
         logger.info("Would write project files to %s", out_dir)
         if args.only_book:
             logger.info("Would generate only book: %s", args.only_book)
         return 0
 
+    source = load_source(args.sourcetexts_root)
+    # One converter per run, so that the notes are numbered across the whole Tanakh.
+    converter = PlusToIntermediate()
     if args.only_book:
         all_books = {b.file_name: b for b in _flatten_books(TANAKH_INDEX)}
         book = all_books.get(args.only_book)
         if book is None:
             raise ValueError(f"Unknown book slug: {args.only_book}")
-        book_file(book, sourcetexts_root=args.sourcetexts_root, project_dir=args.project_dir)
+        book_file(book, source=source, converter=converter, project_dir=args.project_dir)
         return 0
 
     # Generate index + all transclusions recursively
-    index_file(TANAKH_INDEX[0], sourcetexts_root=args.sourcetexts_root, project_dir=args.project_dir)
+    index_file(TANAKH_INDEX[0], source=source, converter=converter, project_dir=args.project_dir)
     return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
-

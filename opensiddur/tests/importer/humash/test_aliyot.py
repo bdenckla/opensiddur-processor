@@ -1,7 +1,7 @@
 """Tests for the MAM aliyah parse.
 
-The conversion logic is tested against synthetic TSV rows rather than the real torah.tsv, so
-that the tests do not change meaning when the source data is updated.
+The conversion logic is tested against synthetic MAM-parsed plus files rather than the real
+ones, so that the tests do not change meaning when the source data is updated.
 """
 
 import json
@@ -32,13 +32,47 @@ HEBREW_NUMERALS = {
 }
 
 
-def _row(book: str, chapter: int, verse: int, **params: str) -> str:
-    """One torah.tsv scaffolding cell carrying an aliyah marker."""
-    body = "|".join(f"{key}={value}" for key, value in params.items())
-    return (
-        f"{{{{מ:פסוק|{book}|{HEBREW_NUMERALS[chapter]}|{HEBREW_NUMERALS[verse]}"
-        f"|עלייה={{{{מ:עלייה|{body}}}}}}}}}"
-    )
+TORAH_FILES = (
+    ("A1-Genesis.json", "בראשית"),
+    ("A2-Exodus.json", "שמות"),
+    ("A3-Levit.json", "ויקרא"),
+    ("A4-Numbers.json", "במדבר"),
+    ("A5-Deuter.json", "דברים"),
+)
+
+
+def _row(book: str, chapter: int, verse: int, documented: bool = False, **params: str):
+    """One verse label (column D) carrying an aliyah marker, as MAM-parsed plus has it."""
+    # א, the label MAM prints in the margin, is in every marker; the parse does not read it.
+    params = {"א": params.get("ב1") or params.get("ב2") or params.get("ב3") or params["ב0"], **params}
+    label = {
+        "tmpl_name": "מ:פסוק",
+        "tmpl_params": {
+            "1": book,
+            "2": HEBREW_NUMERALS[chapter],
+            "3": HEBREW_NUMERALS[verse],
+            "עלייה": {"tmpl_name": "מ:עלייה", "tmpl_params": params},
+        },
+    }
+    if documented:
+        label = {"tmpl_name": "נוסח", "tmpl_params": {"1": label, "2": "תחילת סדר"}}
+    return book, chapter, verse, label
+
+
+def _write_torah(root: Path, rows) -> None:
+    """The five Torah files of a synthetic MAM-parsed plus download, holding ``rows``."""
+    plus = root / "miqra_al_pi_hamasorah" / "plus"
+    plus.mkdir(parents=True, exist_ok=True)
+    for file_name, book in TORAH_FILES:
+        chapters: dict[str, dict[str, list]] = {}
+        for row_book, chapter, verse, label in rows:
+            if row_book == book:
+                chapters.setdefault(str(chapter), {})[str(verse)] = [["__"], [label], ["text"]]
+        book39 = {"book24_name": f"ספר {book}", "sub_book_name": None, "good_ending_plus": None,
+                  "chapters": chapters}
+        (plus / file_name).write_text(
+            json.dumps({"header": {}, "book39s": [book39]}, ensure_ascii=False), encoding="utf-8"
+        )
 
 
 def _write_verse_counts(root: Path) -> None:
@@ -63,20 +97,16 @@ def _write_verse_counts(root: Path) -> None:
 
 
 class TestParseParshiyot(unittest.TestCase):
-    """Parse a synthetic torah.tsv holding two short parshiyot of Genesis."""
+    """Parse a synthetic MAM-parsed plus Torah holding two short parshiyot of Genesis."""
 
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
         self.root = Path(self.temp_dir.name)
-        sheets = self.root / "miqra_al_pi_hamasorah" / "sheets"
-        sheets.mkdir(parents=True)
-        self.tsv = sheets / "torah.tsv"
         _write_verse_counts(self.root)
 
-    def _write(self, scaffolds: list[str]) -> None:
-        lines = ["\t".join(["page", "id", "", scaffold, "text"]) for scaffold in scaffolds]
-        self.tsv.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    def _write(self, rows) -> None:
+        _write_torah(self.root, rows)
 
     def _parse(self):
         return aliyot.parse_parshiyot(self.root)
@@ -157,6 +187,16 @@ class TestParseParshiyot(unittest.TestCase):
         self.assertEqual(first_aliyah.end, VerseRef("genesis", 2, 3))
         self.assertEqual(bereshit.spans_in(UNIT_WEEKDAY)[0].end, VerseRef("genesis", 1, 5))
 
+    def test_a_label_wrapped_in_a_documentation_note_is_read(self):
+        """MAM documents some labels (נוסח around the מ:פסוק); their markers count too."""
+        self._write([
+            _row("בראשית", 1, 1, ב0="בראשית", ב1="ראשון"),
+            _row("בראשית", 2, 4, documented=True, ב0="בראשית", ב1="שני"),
+            _row("בראשית", 6, 9, ב0="נֹח", ב1="ראשון"),
+        ])
+        second = self._parse()[0].spans_in(UNIT_ALIYAH)[1]
+        self.assertEqual(second.start, VerseRef("genesis", 2, 4))
+
     def test_pointing_and_maqaf_survive_the_name_lookup(self):
         """MAM points its names and writes לך־לך with a maqaf; neither may change the slug."""
         self.assertEqual(slug_for_hebrew("נֹח"), "noach")
@@ -183,8 +223,6 @@ class TestParseCombined(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
         self.root = Path(self.temp_dir.name)
-        sheets = self.root / "miqra_al_pi_hamasorah" / "sheets"
-        sheets.mkdir(parents=True)
         _write_verse_counts(self.root)
         rows = [
             _row("ויקרא", 12, 1, ב0="תזריע", ב1="ראשון", ב2="כהן",
@@ -198,10 +236,7 @@ class TestParseCombined(unittest.TestCase):
             _row("ויקרא", 14, 9, ב0="מצֹרע", ב3="מפטיר", ג0=self.PAIR, ג3="מפטיר"),
             _row("ויקרא", 16, 1, ב0="אחרי מות", ב1="ראשון"),
         ]
-        (sheets / "torah.tsv").write_text(
-            "\n".join("\t".join(["page", "id", "", row, "text"]) for row in rows) + "\n",
-            encoding="utf-8",
-        )
+        _write_torah(self.root, rows)
         self.parshiyot, self.combined = aliyot.parse_readings(self.root)
 
     def test_a_pair_covers_both_parshiyot_end_to_end(self):
