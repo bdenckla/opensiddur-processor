@@ -18,6 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the time left, at most every 15 seconds. A slow step in the projects check no longer looks
   the same as a hung one.
 
+### Changed
+- **Miqra al pi ha-Masorah comes from MAM-parsed plus**, the JSON files of MAM-basics
+  (`MAM-parsed/plus/*.json`, pinned to a commit), instead of the TSV export of MAM's frozen
+  Google Sheet. `download` fetches them and MAM's `LICENSE.md` and records the commit in its
+  manifest; `convert` (formerly `convert_tsv`) walks the parsed templates with a closed dispatch
+  that rejects an unknown template; the humash reads its aliyot from the same files. From the
+  same text the output is unchanged except that the index names the commit and quotes MAM's
+  attributions instead of the sheet's README tab, and that words the wikitext front end garbled
+  are as MAM has them: the speaker headings of Job and the title of Proverbs 10:1, the spaces
+  documented in Deuteronomy 23:8, Ezra 2:69 and Nehemiah 3:2, 3:10 and 7:68, the accents of
+  the ten words with geresh or gershayim and telisha gedola, the inverted nuns of Psalms 107,
+  כׇּ֥ל in Psalms 35:10 and Proverbs 19:7, the sheva of ירושלמה, and six qere-only words in
+  documented passages, which had become Wikisource links. Deuteronomy 11:21's scroll-difference
+  note is now marked before the sof pasuq. `openpyxl` is no longer a dependency.
+
 ### Fixed
 - Scan links no longer link pages of another printing among the pages of the one the book
   uses. In a Minchah Amidah, a blessing printed at Minchah with no page break inside it had
