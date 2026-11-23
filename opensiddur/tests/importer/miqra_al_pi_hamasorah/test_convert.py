@@ -7,7 +7,9 @@ import tempfile
 
 
 from opensiddur.importer.miqra_al_pi_hamasorah.convert import (
+    TANAKH_INDEX,
     _book_name_he,
+    _flatten_books,
     front_matter,
     load_source,
     main,
@@ -69,12 +71,28 @@ def _verse(text: list, nav: list | None = None, label: list | None = None) -> li
     return [nav or ["__"], label or [], text]
 
 
+def _with_other_books(files: dict[str, list[dict]]) -> dict[str, list[dict]]:
+    """The given files and one more, Z-Other-Books.json, holding a one-verse stand-in for every
+    book they do not give, since a run converts all 39 books."""
+    given = {_book_name_he(book39) for book39s in files.values() for book39 in book39s}
+    others = [
+        _book39(f"ספר {book.book_name_he}", {"1": {"1": _verse(["א"])}})
+        for book in _flatten_books(TANAKH_INDEX)
+        if book.book_name_he not in given
+    ]
+    return {**files, "Z-Other-Books.json": others}
+
+
+def _convert(sourcetexts_root: Path, project_dir: Path, *args: str) -> int:
+    return main(["--sourcetexts-root", str(sourcetexts_root), "--project-dir", str(project_dir), *args])
+
+
 class TestMiqraConvert(unittest.TestCase):
     def _run(self, files: dict[str, list[dict]], book: str) -> str:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             sourcetexts_root = tmp_path / "sources"
-            _write_source(sourcetexts_root, files)
+            _write_source(sourcetexts_root, _with_other_books(files))
             project_dir = tmp_path / "project"
             rc = main(
                 [
@@ -182,6 +200,39 @@ class TestMiqraConvert(unittest.TestCase):
         xml = self._run({"E2-Ruth.json": ruth}, "ruth")
         self.assertIn("urn:x-opensiddur:text:bible:ruth/1/1", xml)
         self.assertIn("וַיְהִי בִּימֵי", xml)
+
+    @patch("opensiddur.importer.miqra_al_pi_hamasorah.convert.validate")
+    def test_only_book_numbers_the_notes_as_a_full_run_does(self, mock_validate):
+        # Exodus's note follows Genesis's, whether Exodus is written alone or with every book.
+        mock_validate.return_value = (True, [])
+        note = {"tmpl_name": "נוסח", "tmpl_params": {"1": "א", "2": "הערה"}}
+        genesis = _book39("ספר בראשית", {"1": {"1": _verse([note])}})
+        exodus = _book39("ספר שמות", {"1": {"1": _verse([note])}})
+        with tempfile.TemporaryDirectory() as tmp:
+            sourcetexts_root = Path(tmp) / "sources"
+            _write_source(
+                sourcetexts_root,
+                _with_other_books({"A1-Genesis.json": [genesis], "A2-Exodus.json": [exodus]}),
+            )
+            self.assertEqual(_convert(sourcetexts_root, Path(tmp) / "full"), 0)
+            self.assertEqual(_convert(sourcetexts_root, Path(tmp) / "one", "--only-book", "exodus"), 0)
+            full = (Path(tmp) / "full" / "exodus.xml").read_bytes()
+            one = (Path(tmp) / "one" / "exodus.xml").read_bytes()
+        self.assertEqual(one, full)
+        self.assertIn(b"miqra-note-2", one)
+        self.assertNotIn(b'xml:id="miqra-note-1"', one)
+
+    @patch("opensiddur.importer.miqra_al_pi_hamasorah.convert.validate")
+    def test_a_missing_book_stops_the_run_before_it_writes(self, mock_validate):
+        mock_validate.return_value = (True, [])
+        genesis = _book39("ספר בראשית", {"1": {"1": _verse(["א"])}})
+        with tempfile.TemporaryDirectory() as tmp:
+            sourcetexts_root = Path(tmp) / "sources"
+            _write_source(sourcetexts_root, {"A1-Genesis.json": [genesis]})
+            project_dir = Path(tmp) / "project"
+            with self.assertRaisesRegex(PlusFormatError, "have no Exodus"):
+                _convert(sourcetexts_root, project_dir)
+            self.assertFalse(project_dir.exists())
 
     def test_book_names_resolve_sub_book_abbreviations(self):
         self.assertEqual(_book_name_he(_book39("ספר שמואל", {}, 'שמ"א')), "שמואל א")

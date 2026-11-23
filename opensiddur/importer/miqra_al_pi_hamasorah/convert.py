@@ -466,6 +466,25 @@ def miqra_book_to_intermediate(
 """
 
 
+def convert_books(source: MamSource) -> dict[str, str]:
+    """Every book's intermediate XML, by file name, in the order a full run writes the books.
+
+    One converter converts them all, so that the notes are numbered across the whole Tanakh
+    and a book's note ids are the same whether it is written alone (``--only-book``) or in a
+    full run. Every book is converted before any file is written, so a book missing from the
+    download, or a template the reader refuses, stops the run before it has changed the
+    project directory.
+    """
+    converter = PlusToIntermediate()
+    intermediates: dict[str, str] = {}
+    for book in _flatten_books(TANAKH_INDEX):
+        book39 = source.book39s.get(book.book_name_he)
+        if book39 is None:
+            raise PlusFormatError(f"the MAM-parsed plus files have no {book.book_name_en}")
+        intermediates[book.file_name] = miqra_book_to_intermediate(book, book39, converter)
+    return intermediates
+
+
 def intermediate_to_tei(intermediate_xml: str, *, xslt_params: Optional[dict[str, Any]] = None) -> dict[str, str]:
     outputs = xslt_transform_string(
         MIQRA_TO_TEI_XSLT,
@@ -484,13 +503,9 @@ def book_file(
     book: Book,
     *,
     source: MamSource,
-    converter: PlusToIntermediate,
+    intermediate: str,
     project_dir: Path | None,
 ) -> None:
-    book39 = source.book39s.get(book.book_name_he)
-    if book39 is None:
-        raise PlusFormatError(f"the MAM-parsed plus files have no {book.book_name_en}")
-    intermediate = miqra_book_to_intermediate(book, book39, converter)
     intermediate = annotate_canonical_verses(intermediate, book.file_name)
     xml_dict = intermediate_to_tei(intermediate)
     header_xml = header(
@@ -529,7 +544,7 @@ def index_file(
     idx: Index,
     *,
     source: MamSource,
-    converter: PlusToIntermediate,
+    intermediates: dict[str, str],
     project_dir: Path | None,
 ) -> None:
     transclusion_str = "\n".join(
@@ -559,9 +574,11 @@ def index_file(
 
     for t in idx.transclusions:
         if isinstance(t, Index):
-            index_file(t, source=source, converter=converter, project_dir=project_dir)
+            index_file(t, source=source, intermediates=intermediates, project_dir=project_dir)
         else:
-            book_file(t, source=source, converter=converter, project_dir=project_dir)
+            book_file(
+                t, source=source, intermediate=intermediates[t.file_name], project_dir=project_dir
+            )
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -591,7 +608,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--only-book",
         type=str,
         default=None,
-        help="Only generate a single book by file slug (e.g. genesis).",
+        help=(
+            "Only generate a single book by file slug (e.g. genesis). Every book is still "
+            "converted, so that its notes are numbered as in a full run."
+        ),
     )
     return parser
 
@@ -610,19 +630,28 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("Would generate only book: %s", args.only_book)
         return 0
 
-    source = load_source(args.sourcetexts_root)
-    # One converter per run, so that the notes are numbered across the whole Tanakh.
-    converter = PlusToIntermediate()
+    book = None
     if args.only_book:
         all_books = {b.file_name: b for b in _flatten_books(TANAKH_INDEX)}
         book = all_books.get(args.only_book)
         if book is None:
             raise ValueError(f"Unknown book slug: {args.only_book}")
-        book_file(book, source=source, converter=converter, project_dir=args.project_dir)
+
+    source = load_source(args.sourcetexts_root)
+    intermediates = convert_books(source)
+    if book is not None:
+        book_file(
+            book,
+            source=source,
+            intermediate=intermediates[book.file_name],
+            project_dir=args.project_dir,
+        )
         return 0
 
     # Generate index + all transclusions recursively
-    index_file(TANAKH_INDEX[0], source=source, converter=converter, project_dir=args.project_dir)
+    index_file(
+        TANAKH_INDEX[0], source=source, intermediates=intermediates, project_dir=args.project_dir
+    )
     return 0
 
 
