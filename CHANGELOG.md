@@ -31,10 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the spaces documented in Deuteronomy 23:8, Ezra 2:69 and Nehemiah 3:2, 3:10 and 7:68, the
   accents of the ten words with geresh or gershayim and telisha gedola, the inverted nuns of
   Psalms 107, כׇּ֥ל in Psalms 35:10 and Proverbs 19:7, and the sheva of ירושלמה. Six qere-only
-  words in documented passages, which had become Wikisource links, are words again, still within
-  the extra brackets the importer gives every qere-only word. Deuteronomy 11:21's
-  scroll-difference note is now marked before the sof pasuq. `openpyxl` is no longer a
-  dependency.
+  words in documented passages, which had become Wikisource links, are words again, and the
+  17 ketiv-only and qere-only forms have MAM's one pair of parentheses or brackets instead of
+  three. Deuteronomy 11:21's scroll-difference note is now marked before the sof pasuq.
+  `openpyxl` is no longer a dependency.
 
 ### Fixed
 - Scan links no longer link pages of another printing among the pages of the one the book

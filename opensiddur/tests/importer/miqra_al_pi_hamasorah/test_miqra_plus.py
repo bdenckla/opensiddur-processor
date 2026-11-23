@@ -116,14 +116,14 @@ class TestPlusToIntermediate(unittest.TestCase):
         self.assertEqual(frag, convert("הַהִ֖וא"))
 
     def test_ketiv_only_and_qeri_only(self):
-        k = convert(t("כתיב ולא קרי", p1="(אם)־", p2="אם"))
+        k = convert(t("כתיב ולא קרי", p1="(אם)־", p2="אם", p3="־"))
         q = convert(t("קרי ולא כתיב", p1="[בָּאִ֖ים]", p2="בָּאִ֖ים"))
-        self.assertEqual("<miqra:ketiv-only>((אם)־)</miqra:ketiv-only>", k)
-        self.assertEqual("<miqra:qeri-only>[[בָּאִ֖ים]]</miqra:qeri-only>", q)
+        self.assertEqual("<miqra:ketiv-only>אם</miqra:ketiv-only>־", k)
+        self.assertEqual("<miqra:qeri-only>בָּאִ֖ים</miqra:qeri-only>", q)
 
     def test_qeri_only_in_a_note_target_stays_text(self):
         frag = convert(t("נוסח", p1=t("קרי ולא כתיב", p1="[אֵלַ֖י]", p2="אֵלַ֖י"), p2="הערה"))
-        self.assertIn("<miqra:qeri-only>[[אֵלַ֖י]]</miqra:qeri-only>", frag)
+        self.assertIn("<miqra:qeri-only>אֵלַ֖י</miqra:qeri-only>", frag)
         self.assertNotIn("mw:link", frag)
 
     def test_parashah_variants(self):

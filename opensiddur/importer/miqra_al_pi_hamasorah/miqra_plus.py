@@ -15,9 +15,11 @@ raises :class:`PlusFormatError`.
 
 The output is the vocabulary ``miqra_to_tei.xslt`` reads (``miqra:*`` and ``mw:*``
 elements), as the importer's earlier wikitext front end wrote it, so the stylesheet and
-everything after it are unchanged. Notes are numbered by one counter per run, in the order
-that front end numbered them: the notes inside a template's parameters before the template's
-own.
+everything after it are unchanged. Only ``miqra:ketiv-only`` and ``miqra:qeri-only`` differ:
+they hold the bare form, to which the stylesheet adds MAM's parentheses or brackets, where
+the earlier front end added a pair of its own to MAM's. Notes are numbered by one counter
+per run, in the order that front end numbered them: the notes inside a template's
+parameters before the template's own.
 """
 
 from __future__ import annotations
@@ -566,22 +568,31 @@ class PlusToIntermediate:
         return display
 
     def _ketiv_only(self, name: str, params: dict[str, Any], column: str) -> str:
-        """כתיב ולא קרי: 1 is the ketiv as MAM shows it, in parentheses; 2 (and 3) are other
-        forms of it, not rendered. The parentheses added here are the importer's own, kept as
-        its wikitext front end wrote them."""
-        ketiv = self._render(params["1"], column)
-        for key in ("2", "3"):
-            if key in params:
-                self._unrendered(params[key])
-        return f"<miqra:ketiv-only>({ketiv})</miqra:ketiv-only>"
+        """כתיב ולא קרי: 1 is the ketiv as MAM shows it: 2, the bare ketiv, in parentheses,
+        followed by 3, a maqaf, when there is one. The element holds 2 and 3 follows it, so
+        that the stylesheet, which adds the parentheses, gives 1 exactly; 1 is checked to be
+        that."""
+        shown = _string(name, params, "1")
+        ketiv = _string(name, params, "2")
+        after = _string(name, params, "3") if "3" in params else ""
+        expected = f"({ketiv}){after}"
+        if shown != expected:
+            raise PlusFormatError(f"{name}: parameter 1 is {shown!r}, not {expected!r}")
+        return (
+            f"<miqra:ketiv-only>{self._text(ketiv, column)}</miqra:ketiv-only>"
+            f"{self._text(after, column)}"
+        )
 
     def _qeri_only(self, name: str, params: dict[str, Any], column: str) -> str:
-        """קרי ולא כתיב: 1 is the qere as MAM shows it, in brackets; 2 is another form of it,
-        not rendered. The brackets added here are the importer's own, kept as its wikitext
-        front end wrote them."""
-        qeri = self._render(params["1"], column)
-        self._unrendered(params["2"])
-        return f"<miqra:qeri-only>[{qeri}]</miqra:qeri-only>"
+        """קרי ולא כתיב: 1 is the qere as MAM shows it: 2, the bare qere, in brackets. The
+        element holds 2, so that the stylesheet, which adds the brackets, gives 1 exactly; 1
+        is checked to be that."""
+        shown = _string(name, params, "1")
+        qeri = _string(name, params, "2")
+        expected = f"[{qeri}]"
+        if shown != expected:
+            raise PlusFormatError(f"{name}: parameter 1 is {shown!r}, not {expected!r}")
+        return f"<miqra:qeri-only>{self._text(qeri, column)}</miqra:qeri-only>"
 
     # --- special letters ---
 
