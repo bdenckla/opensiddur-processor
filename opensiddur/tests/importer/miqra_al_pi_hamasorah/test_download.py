@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from requests.structures import CaseInsensitiveDict
+
 from opensiddur.importer.miqra_al_pi_hamasorah import download
 from opensiddur.importer.util.pages import (
     miqra_al_pi_hamasorah_data_directory,
@@ -51,6 +53,28 @@ def _files() -> dict[str, bytes]:
         "MAM-parsed/plus/E1-Song of Songs.json": SONG,
         "MAM-parsed/LICENSE.md": LICENSE,
     }
+
+
+class FakeResponse:
+    def __init__(self, status_code: int, headers: dict[str, str] | None = None,
+                 content: bytes = b"") -> None:
+        self.status_code = status_code
+        # As requests gives them: GitHub sends the names in lower case.
+        self.headers = CaseInsensitiveDict(headers or {})
+        self.content = content
+
+
+class FakeSession:
+    """A requests session that answers each GET with the next of the given responses."""
+
+    def __init__(self, *responses: FakeResponse) -> None:
+        self.responses = list(responses)
+        self.headers: dict[str, str] = {}
+        self.urls: list[str] = []
+
+    def get(self, url: str, headers=None, timeout=None) -> FakeResponse:
+        self.urls.append(url)
+        return self.responses.pop(0)
 
 
 class TestDownloadMiqra(unittest.TestCase):
@@ -110,6 +134,45 @@ class TestDownloadMiqra(unittest.TestCase):
             download.download(self.sourcetexts_root, commit=COMMIT, client=client)
         self.assertFalse((self.data_dir / "manifest.json").exists())
 
+    def test_a_file_with_crlf_line_ends_is_refused(self) -> None:
+        files = _files()
+        files["MAM-parsed/LICENSE.md"] = LICENSE.replace(b"\n", b"\r\n")
+        with self.assertRaisesRegex(download.DownloadError, "CRLF"):
+            download.download(self.sourcetexts_root, commit=COMMIT, client=FakeClient(files))
+        self.assertFalse((self.data_dir / "manifest.json").exists())
+
+    def test_a_failed_download_leaves_the_previous_one_intact(self) -> None:
+        download.download(self.sourcetexts_root, commit=COMMIT, client=FakeClient(_files()))
+        before = {path: path.read_bytes() for path in self.data_dir.rglob("*") if path.is_file()}
+        other = "fedcba9876543210fedcba9876543210fedcba98"
+        files = {path: data + b" " for path, data in _files().items()}
+        client = FakeClient(files, other)
+        fetch = client.get_bytes
+
+        def get_bytes(url: str, *, accept: str | None = None) -> bytes:
+            # Song of Songs, fetched after Genesis, does not match its listing.
+            return b"tampered" if url.endswith("Song%20of%20Songs.json") else fetch(url, accept=accept)
+
+        client.get_bytes = get_bytes
+        with self.assertRaises(download.DownloadError):
+            download.download(self.sourcetexts_root, commit=other, client=client)
+        after = {path: path.read_bytes() for path in self.data_dir.rglob("*") if path.is_file()}
+        self.assertEqual(after, before)
+
+    def test_a_crlf_copy_of_an_intact_download_is_a_no_op(self) -> None:
+        """As Git for Windows checks the committed files out (core.autocrlf)."""
+        download.download(self.sourcetexts_root, commit=COMMIT, client=FakeClient(_files()))
+        for path in self.data_dir.rglob("*"):
+            if path.is_file():
+                path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+        before = {path: path.read_bytes() for path in self.data_dir.rglob("*") if path.is_file()}
+        client = FakeClient(_files())
+        result = download.download(self.sourcetexts_root, commit=COMMIT, client=client)
+        self.assertEqual(client.requests, [])
+        self.assertFalse(result.manifest_written)
+        after = {path: path.read_bytes() for path in self.data_dir.rglob("*") if path.is_file()}
+        self.assertEqual(after, before)
+
     def test_only_files_a_previous_download_recorded_are_deleted(self) -> None:
         download.download(self.sourcetexts_root, commit=COMMIT, client=FakeClient(_files()))
         sheets = self.data_dir / "sheets" / "torah.tsv"
@@ -139,6 +202,54 @@ class TestDownloadMiqra(unittest.TestCase):
         self.assertEqual(code, 0)
         mock_download.assert_called_once()
         self.assertTrue(mock_download.call_args.kwargs["dry_run"])
+
+
+class TestClient(unittest.TestCase):
+    URL = "https://api.github.com/repos/bdenckla/MAM-basics/contents/MAM-parsed"
+
+    def setUp(self) -> None:
+        self.sleeps: list[float] = []
+
+    def _client(self, *responses: FakeResponse) -> tuple[download.Client, FakeSession]:
+        session = FakeSession(*responses)
+        return download.Client(session, sleep=self.sleeps.append, clock=lambda: 1000.0), session
+
+    def test_a_real_client_sends_its_user_agent(self) -> None:
+        # A requests session has a User-Agent of its own, which the client's replaces.
+        self.assertEqual(download.Client().session.headers["User-Agent"], download.USER_AGENT)
+
+    def test_retry_after_is_honoured(self) -> None:
+        client, _ = self._client(FakeResponse(429, {"retry-after": "7"}), FakeResponse(200, content=b"ok"))
+        with self.assertLogs(download.logger, "WARNING"):
+            self.assertEqual(client.get_bytes(self.URL), b"ok")
+        self.assertEqual(self.sleeps, [7.0])
+
+    def test_a_used_up_rate_limit_is_waited_out_until_its_reset(self) -> None:
+        used_up = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1030"}
+        client, _ = self._client(FakeResponse(503, used_up), FakeResponse(200, content=b"ok"))
+        with self.assertLogs(download.logger, "WARNING"):
+            self.assertEqual(client.get_bytes(self.URL), b"ok")
+        self.assertEqual(self.sleeps, [30.0])
+
+    def test_a_403_for_the_rate_limit_says_so(self) -> None:
+        used_up = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1030"}
+        client, session = self._client(FakeResponse(403, used_up))
+        with self.assertRaisesRegex(download.DownloadError, "rate limit is used up until 1970-01-01T00:17:10"):
+            client.get_bytes(self.URL)
+        self.assertEqual((session.urls, self.sleeps), ([self.URL], []))
+
+    def test_another_403_is_not_retried(self) -> None:
+        client, session = self._client(FakeResponse(403, {"x-ratelimit-remaining": "59"}))
+        with self.assertRaisesRegex(download.DownloadError, r"HTTP 403$"):
+            client.get_bytes(self.URL)
+        self.assertEqual((session.urls, self.sleeps), ([self.URL], []))
+
+    def test_no_wait_after_the_last_attempt(self) -> None:
+        client, session = self._client(*[FakeResponse(502)] * 4)
+        with self.assertLogs(download.logger, "WARNING"), self.assertRaises(download.DownloadError):
+            client.get_bytes(self.URL)
+        self.assertEqual(len(session.urls), 4)
+        self.assertEqual(self.sleeps, [1.0, 2.0, 4.0])
 
 
 if __name__ == "__main__":

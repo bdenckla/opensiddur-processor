@@ -13,11 +13,16 @@ This writes ``<sourcetexts-root>/miqra_al_pi_hamasorah/``:
 - ``manifest.json``: the repository, the commit, each file's URL, size and SHA-256, and the
   time of the download.
 
-Each file is checked against the Git blob SHA that GitHub lists for it at the commit. A run
-whose commit and files match the manifest fetches nothing and writes nothing. A file under
-``plus/`` that the previous manifest recorded and the commit no longer has is deleted;
-nothing else in the directory is touched, such as ``sheets/``, the retired Google Sheet
-export, which the importer no longer reads.
+Each file is checked against the Git blob SHA that GitHub lists for it at the commit. Every
+file is fetched and checked before any is written, and the manifest is written last, so a
+download that fails leaves the previous one as it was. A run whose commit and files match the
+manifest fetches nothing and writes nothing; a file whose line ends Git for Windows has turned
+into CRLF still matches (:func:`content_sha256`). A file under ``plus/`` that the previous
+manifest recorded and the commit no longer has is deleted.
+
+The first download replaces ``manifest.json``, which described the retired Google Sheet export
+in ``sheets/``. The importer no longer reads ``sheets/``; the download leaves it for the
+maintainer to remove in the sourcetexts commit that adds the download.
 
 Run::
 
@@ -71,32 +76,75 @@ class DownloadError(RuntimeError):
     pass
 
 
+def _retry_delay(response: requests.Response, attempt: int, now: float) -> float:
+    """Seconds to wait before retrying a 429 or 503, as GitHub asks.
+
+    ``Retry-After`` when the response has one; else, when it says the rate limit is used up
+    (``X-RateLimit-Remaining: 0``), until ``X-RateLimit-Reset``, a Unix time; else 1, 2, 4...
+    """
+    headers = response.headers
+    try:
+        if headers.get("Retry-After"):
+            return max(0.0, float(headers["Retry-After"]))
+        if headers.get("X-RateLimit-Remaining") == "0" and headers.get("X-RateLimit-Reset"):
+            return max(0.0, float(headers["X-RateLimit-Reset"]) - now)
+    except ValueError:
+        logger.debug("Ignoring an uninterpretable retry header in %r", dict(headers))
+    return float(2 ** attempt)
+
+
+def _rate_limit_reset(response: requests.Response) -> str:
+    reset = response.headers.get("X-RateLimit-Reset", "")
+    if not reset.isdigit():
+        return ""
+    return f" until {datetime.fromtimestamp(int(reset), timezone.utc).isoformat()}"
+
+
 class Client:
-    """HTTP for GitHub's API and raw files, with timeouts and a few retries."""
+    """HTTP for GitHub's API and raw files, with timeouts and a few retries.
+
+    A 429 or 5xx is retried, after the wait a 429 or 503 asks for (:func:`_retry_delay`); a 403
+    that says GitHub's rate limit is used up fails at once, saying so.
+    """
 
     def __init__(self, session: requests.Session | None = None, *, retries: int = 4,
-                 timeout: float = 60.0, sleep: Callable[[float], None] = time.sleep) -> None:
+                 timeout: float = 60.0, sleep: Callable[[float], None] = time.sleep,
+                 clock: Callable[[], float] = time.time) -> None:
         self.session = session or requests.Session()
-        self.session.headers.setdefault("User-Agent", USER_AGENT)
+        # Assigned, not set by default: a requests session already has a User-Agent of its own.
+        self.session.headers["User-Agent"] = USER_AGENT
         self.retries = retries
         self.timeout = timeout
         self.sleep = sleep
+        self.clock = clock
 
     def get_bytes(self, url: str, *, accept: str | None = None) -> bytes:
         headers = {"Accept": accept} if accept else {}
-        last: Exception | None = None
+        problem = ""
         for attempt in range(self.retries):
+            delay = float(2 ** attempt)
             try:
                 response = self.session.get(url, headers=headers, timeout=self.timeout)
                 if response.status_code == 200:
                     return response.content
+                if (response.status_code == 403
+                        and response.headers.get("X-RateLimit-Remaining") == "0"):
+                    raise DownloadError(
+                        f"GET {url}: HTTP 403: GitHub's API rate limit is used up"
+                        f"{_rate_limit_reset(response)}")
                 if response.status_code not in (429, 500, 502, 503, 504):
                     raise DownloadError(f"GET {url}: HTTP {response.status_code}")
-                last = DownloadError(f"GET {url}: HTTP {response.status_code}")
+                problem = f"HTTP {response.status_code}"
+                if response.status_code in (429, 503):
+                    delay = _retry_delay(response, attempt, self.clock())
             except requests.RequestException as exc:
-                last = exc
-            self.sleep(2 ** attempt)
-        raise DownloadError(f"GET {url} failed after {self.retries} attempts: {last}")
+                problem = str(exc) or type(exc).__name__
+            # No wait after the last attempt: nothing follows it.
+            if attempt + 1 < self.retries:
+                logger.warning("GET %s: %s; retrying in %.0f s (attempt %d of %d)",
+                               url, problem, delay, attempt + 1, self.retries)
+                self.sleep(delay)
+        raise DownloadError(f"GET {url} failed after {self.retries} attempts: {problem}")
 
     def get_json(self, url: str) -> Any:
         return json.loads(self.get_bytes(url, accept="application/vnd.github+json"))
@@ -135,11 +183,29 @@ def _fetch(client: Client, commit: str, path: str, listed: dict[str, Any]) -> by
     data = client.get_bytes(raw_url(commit, path))
     if len(data) != listed["size"] or git_blob_sha(data) != listed["sha"]:
         raise DownloadError(f"{path} at {commit} does not match its listing")
+    if b"\r\n" in data:
+        # The checks compare content_sha256 with the manifest's SHA-256 of the bytes as
+        # downloaded, which are the same only for a file without CRLF.
+        raise DownloadError(f"{path} at {commit} has CRLF line ends")
     return data
 
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def content_sha256(data: bytes) -> str:
+    """The SHA-256 of a downloaded file's content, with CRLF line ends read as LF.
+
+    The integrity checks (the no-op check here and ``convert.load_source``'s) use it because
+    Git for Windows checks the committed LF files out with CRLF (``core.autocrlf``), and
+    reading CRLF as LF changes no file's meaning: in JSON a CR can only be whitespace between
+    tokens, since a CR inside a string is escaped (``\\r``), and LICENSE.md is Markdown, whose
+    text its line ends do not change. No byte of a UTF-8 multi-byte character is a CR or LF.
+    The downloaded files are LF (:func:`_fetch` refuses CRLF), so the manifest's SHA-256, of
+    the bytes as downloaded, is also their content's, and stays checkable against GitHub.
+    """
+    return _sha256(data.replace(b"\r\n", b"\n"))
 
 
 def load_manifest(data_dir: Path) -> dict[str, Any]:
@@ -160,7 +226,7 @@ def _intact(data_dir: Path, manifest: dict[str, Any]) -> bool:
     files = _recorded_files(manifest)
     return bool(files) and all(
         (data_dir / entry["path"]).is_file()
-        and _sha256((data_dir / entry["path"]).read_bytes()) == entry["sha256"]
+        and content_sha256((data_dir / entry["path"]).read_bytes()) == entry["sha256"]
         for entry in files
     )
 
@@ -201,7 +267,9 @@ def download(
     manifest = load_manifest(data_dir)
     if (data_dir / "sheets").exists():
         logger.warning("%s holds the retired Google Sheet export, which the importer no longer "
-                       "reads; it is left in place", data_dir / "sheets")
+                       "reads and whose manifest.json the first download replaces; it is left "
+                       "for the maintainer to remove in the sourcetexts commit that adds the "
+                       "download", data_dir / "sheets")
     if manifest.get("commit") == sha and _intact(data_dir, manifest):
         logger.info("MAM-parsed plus at %s is already downloaded", sha)
         return DownloadResult(sha)
@@ -221,18 +289,24 @@ def download(
     downloads = [(f"{PLUS_PATH}/{name}", f"{plus_dir.name}/{name}", entry)
                  for name, entry in sorted(plus_listing.items())]
     downloads.append((LICENSE_PATH, LICENSE_NAME, licence_listed))
+    contents: list[tuple[str, bytes]] = []
     entries = []
     for remote_path, local_path, listed in downloads:
         logger.info("Downloading %s", remote_path)
         data = _fetch(client, sha, remote_path, listed)
-        if _write_bytes_if_changed(data_dir / local_path, data):
-            result.fetched.append(local_path)
+        contents.append((local_path, data))
         entries.append({
             "path": local_path,
             "url": raw_url(sha, remote_path),
             "bytes": len(data),
             "sha256": _sha256(data),
         })
+
+    # Every file has been fetched and checked before any is written, and the manifest is
+    # written last: a download that fails leaves the previous one and its manifest as they were.
+    for local_path, data in contents:
+        if _write_bytes_if_changed(data_dir / local_path, data):
+            result.fetched.append(local_path)
 
     # Only the files an earlier download of this source recorded are deleted.
     kept = {entry["path"] for entry in entries}
