@@ -2675,6 +2675,36 @@ class TestEditionColophons(unittest.TestCase):
         self.assertIn("\\Bfootnote", out[out.index("First published in 1842."):])
 
 
+
+
+class TestRunInRubricTrailingSpace(unittest.TestCase):
+    def test_inline_label_separates_following_word_and_segment(self):
+        for kind in ('instruction', 'description'):
+            for following in ('word', '<tei:seg>word</tei:seg>'):
+                with self.subTest(kind=kind, following=following):
+                    xml = ('<tei:TEI xmlns:tei="http://www.tei-c.org/ns/1.0" xml:lang="en">'
+                           '<tei:text><tei:body><tei:p>'
+                           f'<tei:note type="{kind}">Reader</tei:note>{following}'
+                           '</tei:p></tei:body></tei:text></tei:TEI>')
+                    self.assertRegex(_transform(xml), r"Reader\}+(?:\\ )word")
+
+    def test_hebrew_role_label_separates_wrapped_prayer_word(self):
+        xml = ('<tei:TEI xmlns:tei="http://www.tei-c.org/ns/1.0" xml:lang="he">'
+               '<tei:text><tei:body><tei:p><tei:seg>תפלה </tei:seg>'
+               '<tei:note type="description">הש״ץ בקול</tei:note>'
+               '<tei:seg>כֹּהֲנִים</tei:seg></tei:p></tei:body></tei:text></tei:TEI>')
+        self.assertIn('}\\ כֹּהֲנִים', _transform(xml))
+
+    def test_existing_space_and_following_punctuation_are_not_changed(self):
+        for tail in (' word', ':'):
+            with self.subTest(tail=tail):
+                xml = ('<tei:TEI xmlns:tei="http://www.tei-c.org/ns/1.0" xml:lang="en">'
+                       '<tei:text><tei:body><tei:p><tei:note type="instruction">Reader</tei:note>'
+                       f'{tail}</tei:p></tei:body></tei:text></tei:TEI>')
+                output = _transform(xml)
+                self.assertRegex(output, r"Reader\}+" + re.escape(tail))
+                self.assertNotRegex(output, r"Reader\}+(?:\\ )" + re.escape(tail))
+
 if __name__ == "__main__":
     unittest.main()
 
