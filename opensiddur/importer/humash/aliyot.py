@@ -31,12 +31,12 @@ aliyah, does not shorten it. The one explicit end marker is ``ע"כ ישראל``
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from opensiddur.importer.miqra_al_pi_hamasorah.convert import load_source
 from opensiddur.importer.miqra_al_pi_hamasorah.miqra_plus import (
     DOCUMENTATION_NOTE,
     VERSE_LABEL,
@@ -67,7 +67,6 @@ from opensiddur.importer.humash.refs import (
     previous_verse,
     verses_in_chapter,
 )
-from opensiddur.importer.util.pages import miqra_al_pi_hamasorah_plus_directory
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +80,6 @@ WEEKDAY_END = 'ע"כ ישראל'
 WEEKDAY_NUMBER = {name: str(index + 1) for index, name in enumerate(WEEKDAY_HONOURS)}
 
 MAFTIR = "מפטיר"
-
-# MAM-parsed plus names its files by the 24 books, the Torah's first: A1-Genesis.json to
-# A5-Deuter.json.
-_TORAH_FILES = "A*.json"
-_BOOK24_PREFIX = "ספר "
 
 
 @dataclass
@@ -177,31 +171,31 @@ def _verse_label_aliyah(label_column: Any, where: str) -> dict[str, str] | None:
 
 
 def read_markers(sourcetexts_root: Path | None = None) -> list[_Marker]:
-    """Every aliyah marker in MAM's Torah, in reading order."""
+    """Every aliyah marker in MAM's Torah, in reading order.
+
+    The download is read through the converter's ``load_source``, with its checks: each file
+    against the manifest's SHA-256, no file that the manifest does not list, and the keys of
+    every plus file.
+    """
+    source = load_source(sourcetexts_root)
     markers: list[_Marker] = []
-    books: list[str] = []
-    for path in sorted(miqra_al_pi_hamasorah_plus_directory(sourcetexts_root).glob(_TORAH_FILES)):
-        for book39 in json.loads(path.read_text(encoding="utf-8"))["book39s"]:
-            book24_name = book39["book24_name"]
-            book = HEBREW_BOOK_TO_SLUG.get(book24_name.removeprefix(_BOOK24_PREFIX))
-            if book is None or book39["sub_book_name"] is not None:
-                raise PlusFormatError(f"{path.name}: {book24_name!r} is not a book of the Torah")
-            books.append(book)
-            for chapter, verses in book39["chapters"].items():
-                for verse, columns in verses.items():
-                    params = _verse_label_aliyah(columns[1], f"{book} {chapter}:{verse}")
-                    if params is None:
-                        continue
-                    # MAM's own numbering, which the canonical URN space does not share in the
-                    # Decalogue and a few other chapters. A marker names where an aliyah begins,
-                    # so where MAM reads several canonical verses as one, the aliyah begins at
-                    # the first of them.
-                    ref = canonical_ref(
-                        NUMBERING_MASORAH, VerseRef(book, int(chapter), int(verse))
-                    )
-                    markers.append(_Marker(ref=ref, params=params))
-    if books != list(HEBREW_BOOK_TO_SLUG.values()):
-        raise PlusFormatError(f"expected the five books of the Torah, found {books}")
+    for name, book in HEBREW_BOOK_TO_SLUG.items():
+        book39 = source.book39s.get(name)
+        if book39 is None:
+            raise PlusFormatError(f"the MAM-parsed plus files have no {book}")
+        for chapter, verses in book39["chapters"].items():
+            for verse, columns in verses.items():
+                params = _verse_label_aliyah(columns[1], f"{book} {chapter}:{verse}")
+                if params is None:
+                    continue
+                # MAM's own numbering, which the canonical URN space does not share in the
+                # Decalogue and a few other chapters. A marker names where an aliyah begins,
+                # so where MAM reads several canonical verses as one, the aliyah begins at
+                # the first of them.
+                ref = canonical_ref(
+                    NUMBERING_MASORAH, VerseRef(book, int(chapter), int(verse))
+                )
+                markers.append(_Marker(ref=ref, params=params))
     return markers
 
 

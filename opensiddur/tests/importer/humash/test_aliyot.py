@@ -24,6 +24,8 @@ from opensiddur.importer.humash.refs import (
     VerseRef,
     verses_in_chapter,
 )
+from opensiddur.importer.miqra_al_pi_hamasorah.miqra_plus import PlusFormatError
+from opensiddur.tests.importer.miqra_al_pi_hamasorah.support import book39, write_source
 
 HEBREW_NUMERALS = {
     1: "א", 2: "ב", 3: "ג", 4: "ד", 5: "ה", 6: "ו", 7: "ז", 8: "ח", 9: "ט", 10: "י",
@@ -60,19 +62,16 @@ def _row(book: str, chapter: int, verse: int, documented: bool = False, **params
 
 
 def _write_torah(root: Path, rows) -> None:
-    """The five Torah files of a synthetic MAM-parsed plus download, holding ``rows``."""
-    plus = root / "miqra_al_pi_hamasorah" / "plus"
-    plus.mkdir(parents=True, exist_ok=True)
+    """A synthetic MAM-parsed plus download holding ``rows``: the five Torah files, MAM's
+    licence and a manifest."""
+    files = {}
     for file_name, book in TORAH_FILES:
         chapters: dict[str, dict[str, list]] = {}
         for row_book, chapter, verse, label in rows:
             if row_book == book:
                 chapters.setdefault(str(chapter), {})[str(verse)] = [["__"], [label], ["text"]]
-        book39 = {"book24_name": f"ספר {book}", "sub_book_name": None, "good_ending_plus": None,
-                  "chapters": chapters}
-        (plus / file_name).write_text(
-            json.dumps({"header": {}, "book39s": [book39]}, ensure_ascii=False), encoding="utf-8"
-        )
+        files[file_name] = [book39(f"ספר {book}", chapters)]
+    write_source(root, files)
 
 
 def _write_verse_counts(root: Path) -> None:
@@ -196,6 +195,14 @@ class TestParseParshiyot(unittest.TestCase):
         ])
         second = self._parse()[0].spans_in(UNIT_ALIYAH)[1]
         self.assertEqual(second.start, VerseRef("genesis", 2, 4))
+
+    def test_a_torah_file_that_is_not_the_one_the_manifest_lists_is_refused(self):
+        """The download is read through the converter's load_source, with its checks."""
+        self._write([_row("בראשית", 1, 1, ב0="בראשית", ב1="ראשון")])
+        path = self.root / "miqra_al_pi_hamasorah" / "plus" / "A1-Genesis.json"
+        path.write_bytes(path.read_bytes() + b" ")
+        with self.assertRaisesRegex(PlusFormatError, "is not the file"):
+            self._parse()
 
     def test_pointing_and_maqaf_survive_the_name_lookup(self):
         """MAM points its names and writes לך־לך with a maqaf; neither may change the slug."""
