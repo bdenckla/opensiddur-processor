@@ -1,3 +1,4 @@
+import hashlib
 import json
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ from opensiddur.importer.miqra_al_pi_hamasorah.convert import (
     main,
     read_attributions,
 )
+from opensiddur.importer.miqra_al_pi_hamasorah.miqra_plus import PlusFormatError
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 
@@ -40,19 +42,27 @@ def _book39(book24_name: str, chapters: dict, sub_book_name: str | None = None) 
     }
 
 
-def _write_source(sourcetexts_root: Path, files: dict[str, list[dict]]) -> None:
-    """A miniature MAM-parsed plus download: a manifest, MAM's licence and the given files."""
+HEADER = {"book24_name": "ספר", "sub_book_names": None, "chapter_counts": {}}
+
+
+def _write_source(sourcetexts_root: Path, files: dict[str, list[dict]]) -> Path:
+    """A miniature MAM-parsed plus download: MAM's licence, the given files and a manifest
+    recording each file's SHA-256. Returns the download's directory."""
     data_dir = sourcetexts_root / "miqra_al_pi_hamasorah"
     (data_dir / "plus").mkdir(parents=True, exist_ok=True)
+    contents = {"LICENSE.md": LICENSE.encode("utf-8")}
+    for name, book39s in files.items():
+        plus_file = {"header": HEADER, "book39s": book39s}
+        contents[f"plus/{name}"] = (json.dumps(plus_file, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
+    for path, data in contents.items():
+        (data_dir / path).write_bytes(data)
+    entries = [{"path": path, "sha256": hashlib.sha256(data).hexdigest()} for path, data in contents.items()]
     (data_dir / "manifest.json").write_text(
-        json.dumps({"repository": "bdenckla/MAM-basics", "commit": COMMIT, "plus_path": "MAM-parsed/plus"}),
+        json.dumps({"repository": "bdenckla/MAM-basics", "commit": COMMIT, "plus_path": "MAM-parsed/plus",
+                    "files": entries}),
         encoding="utf-8",
     )
-    (data_dir / "LICENSE.md").write_text(LICENSE, encoding="utf-8")
-    for name, book39s in files.items():
-        (data_dir / "plus" / name).write_text(
-            json.dumps({"header": {}, "book39s": book39s}, ensure_ascii=False), encoding="utf-8"
-        )
+    return data_dir
 
 
 def _verse(text: list, nav: list | None = None, label: list | None = None) -> list:
@@ -204,6 +214,54 @@ class TestFrontMatter(unittest.TestCase):
     def test_a_licence_without_the_attributions_is_refused(self):
         with self.assertRaises(ValueError):
             read_attributions("License: CC-BY-SA 4.0\n")
+
+
+class TestLoadSource(unittest.TestCase):
+    """load_source reads the files the manifest lists, only if they are the files it lists."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.sourcetexts_root = Path(self.tmp.name)
+        ruth = _book39("מגילת רות", {"1": {"1": _verse(["ויהי בימי"])}})
+        self.data_dir = _write_source(self.sourcetexts_root, {"E2-Ruth.json": [ruth]})
+
+    def test_the_listed_files_load(self):
+        self.assertEqual(list(load_source(self.sourcetexts_root).book39s), ["רות"])
+
+    def test_a_crlf_copy_loads(self):
+        # As Git for Windows checks the committed files out (core.autocrlf).
+        for path in self.data_dir.rglob("*"):
+            if path.is_file():
+                path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+        source = load_source(self.sourcetexts_root)
+        self.assertEqual(list(source.book39s), ["רות"])
+        self.assertIn("הייחוס בעברית", source.attributions["he"].statement)
+
+    def test_a_file_that_differs_from_the_manifest_is_refused(self):
+        for name in ("plus/E2-Ruth.json", "LICENSE.md"):
+            path = self.data_dir / name
+            original = path.read_bytes()
+            path.write_bytes(original + b" ")
+            with self.subTest(name=name), self.assertRaisesRegex(PlusFormatError, "is not the file"):
+                load_source(self.sourcetexts_root)
+            path.write_bytes(original)
+
+    def test_a_missing_file_is_refused(self):
+        (self.data_dir / "plus" / "E2-Ruth.json").unlink()
+        with self.assertRaisesRegex(PlusFormatError, "is missing"):
+            load_source(self.sourcetexts_root)
+
+    def test_a_json_file_the_manifest_does_not_list_is_refused(self):
+        (self.data_dir / "plus" / "E3-Lamentations.json").write_text("{}", encoding="utf-8")
+        with self.assertRaisesRegex(PlusFormatError, "does not list"):
+            load_source(self.sourcetexts_root)
+
+    def test_a_book39_with_an_unknown_key_is_refused(self):
+        ruth = {**_book39("מגילת רות", {"1": {"1": _verse(["ויהי"])}}), "extra": 1}
+        _write_source(self.sourcetexts_root, {"E2-Ruth.json": [ruth]})
+        with self.assertRaisesRegex(PlusFormatError, "book39"):
+            load_source(self.sourcetexts_root)
 
 
 class TestIndexUrnName(unittest.TestCase):

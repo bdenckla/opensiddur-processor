@@ -21,11 +21,17 @@ from opensiddur.importer.util.pages import (
 from opensiddur.importer.util.prettify import prettify_xml
 from opensiddur.importer.util.validation import validate
 from opensiddur.importer.miqra_al_pi_hamasorah.canonical_verses import annotate_canonical_verses
+from opensiddur.importer.miqra_al_pi_hamasorah.download import (
+    LICENSE_NAME,
+    MANIFEST_NAME,
+    content_sha256,
+)
 from opensiddur.importer.miqra_al_pi_hamasorah.miqra_plus import (
     MIQRA_NS,
     MW_NS,
     PlusFormatError,
     PlusToIntermediate,
+    check_plus_file,
 )
 
 logger = logging.getLogger(__name__)
@@ -351,25 +357,63 @@ class MamSource:
         )
 
 
+def _listed_contents(
+    data_dir: Path, manifest: dict[str, Any], manifest_path: Path
+) -> dict[str, str]:
+    """The text of each file the manifest lists, by its path there, after checking it.
+
+    A file must match the manifest's SHA-256 (with CRLF read as LF, as the downloader's own
+    check reads it: ``download.content_sha256``), so that a download that failed or was
+    edited is never credited to the manifest's commit.
+    """
+    files = manifest.get("files")
+    if not isinstance(files, list) or not files:
+        raise PlusFormatError(f"{manifest_path} lists no files (run download)")
+    contents: dict[str, str] = {}
+    for entry in files:
+        path = data_dir / entry["path"]
+        if not path.is_file():
+            raise PlusFormatError(f"{path}, which {manifest_path} lists, is missing (run download)")
+        data = path.read_bytes()
+        if content_sha256(data) != entry["sha256"]:
+            raise PlusFormatError(f"{path} is not the file {manifest_path} lists (run download)")
+        contents[entry["path"]] = data.replace(b"\r\n", b"\n").decode("utf-8")
+    return contents
+
+
 def load_source(sourcetexts_root: Path | None) -> MamSource:
-    """Read the download: its manifest, MAM's licence and every book of the plus files."""
+    """Read the download: its manifest, MAM's licence and every book of the plus files.
+
+    The files read are those the manifest lists, each checked against its SHA-256 there; a
+    JSON file in ``plus/`` that the manifest does not list is refused.
+    """
     data_dir = miqra_al_pi_hamasorah_data_directory(sourcetexts_root)
-    manifest_path = data_dir / "manifest.json"
+    manifest_path = data_dir / MANIFEST_NAME
     if not manifest_path.exists():
         raise FileNotFoundError(f"Missing {manifest_path} (run download first)")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     commit = manifest.get("commit", "")
     if not _COMMIT.fullmatch(commit):
         raise PlusFormatError(f"{manifest_path}: no full commit SHA: {commit!r}")
-    attributions = read_attributions((data_dir / "LICENSE.md").read_text(encoding="utf-8"))
+    contents = _listed_contents(data_dir, manifest, manifest_path)
+    plus_dir = miqra_al_pi_hamasorah_plus_directory(sourcetexts_root)
+    plus_paths = sorted(f"{plus_dir.name}/{path.name}" for path in plus_dir.glob("*.json"))
+    unlisted = [path for path in plus_paths if path not in contents]
+    if unlisted:
+        raise PlusFormatError(f"{manifest_path} does not list {unlisted} (run download)")
+    if LICENSE_NAME not in contents:
+        raise PlusFormatError(f"{manifest_path} does not list {LICENSE_NAME}")
+    attributions = read_attributions(contents[LICENSE_NAME])
 
     known = {book.book_name_he for book in _flatten_books(TANAKH_INDEX)}
     book39s: dict[str, dict[str, Any]] = {}
-    for path in sorted(miqra_al_pi_hamasorah_plus_directory(sourcetexts_root).glob("*.json")):
-        for book39 in json.loads(path.read_text(encoding="utf-8"))["book39s"]:
+    for path in plus_paths:
+        plus_file = json.loads(contents[path])
+        check_plus_file(plus_file, path)
+        for book39 in plus_file["book39s"]:
             name = _book_name_he(book39)
             if name not in known or name in book39s:
-                raise PlusFormatError(f"{path.name}: unexpected book {name!r}")
+                raise PlusFormatError(f"{path}: unexpected book {name!r}")
             book39s[name] = book39
     return MamSource(
         repository=manifest["repository"],
@@ -397,9 +441,10 @@ def miqra_book_to_intermediate(
     Build an intermediate XML document for a single book.
 
     Each verse of the plus book39 becomes a row, numbered by its chapter and verse keys. The
-    book39's good ending (good_ending_plus) is not read, as the sheet's good-ending rows were
-    not.
+    book39's good ending (good_ending_plus) is checked but not rendered, as the sheet's
+    good-ending rows were not.
     """
+    converter.check_good_ending(book39["good_ending_plus"], book.file_name)
     rows_xml: list[str] = []
     for chapter, verses in _numbered(book39["chapters"], book.file_name):
         for verse, columns in _numbered(verses, f"{book.file_name} {chapter}"):

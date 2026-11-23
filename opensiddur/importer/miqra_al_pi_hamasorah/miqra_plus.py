@@ -32,14 +32,14 @@ MW_NS = "urn:x-opensiddur:mw:intermediate"
 _ANY_HI_RE = re.compile(r"'''''(.*?)'''''|'''(.*?)'''|''(.*?)''")
 _TAG_OPEN_RE = re.compile(r"<(miqra|mw):([a-zA-Z0-9-]+)([^>]*?)(/?)>")
 
-#: In MAM's wikitext a double underscore stands for a space: column C's usual separator
-#: (mpplus.html, "C column"), and the space after the inverted nuns of Psalms 107.
+#: In MAM's wikitext a double underscore stands for a space. Plus keeps it only in column C,
+#: as the usual separator (mpplus.html, "C column"), so only column C's are read as spaces;
+#: but see :meth:`PlusToIntermediate._inverted_nun`.
 _SPACE_CODE = "__"
-#: Column C's line break, which the stylesheet does not render; a URL's ``//`` is not one.
-_LINE_BREAK_RE = re.compile(r"(?<!https:)(?<!http:)//")
 #: Wikitext the plus parse would have turned into templates or links, or text that would be
 #: read as this module's own markup.
 _UNEXPECTED_TEXT_RE = re.compile(r"\{\{|\}\}|\[\[|\]\]|<(?:miqra|mw):")
+_NUMBER = re.compile(r"[1-9][0-9]*")
 
 #: Where a scroll-difference note's marker stands: after its target, or before it.
 STAR_AFTER = "אאא*"
@@ -52,6 +52,7 @@ DOCUMENTATION_NOTE = "נוסח"
 SCROLL_DIFFERENCE_NOTE = "מ:הערה-2"
 VERSE_LABEL = "מ:פסוק"
 ALIYAH = "מ:עלייה"
+GOOD_ENDING = "מ:סיום בטוב"
 
 
 class PlusFormatError(ValueError):
@@ -216,11 +217,27 @@ TEMPLATE_SCHEMAS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
         _keys("א", "ב0", "ב1", "ב2", "ב3", "ג0", "ג1", "ג2", "ג3"),
     ),
     # The good ending, which plus keeps beside the chapters (good_ending_plus).
-    "מ:סיום בטוב": (_keys("1"), _keys("1")),
+    GOOD_ENDING: (_keys("1"), _keys("1")),
 }
+
+#: The keys of a plus file, of its header and of each of its book39s: (required, allowed).
+#: MAM-basics added the header's consumer_notice on 2026-09-16 (37cbca1), so a download of an
+#: earlier commit, through ``download --commit``, has none.
+PLUS_FILE_KEYS = (_keys("header", "book39s"), _keys("header", "book39s"))
+HEADER_KEYS = (
+    _keys("book24_name", "sub_book_names", "chapter_counts"),
+    _keys("book24_name", "sub_book_names", "chapter_counts", "consumer_notice"),
+)
+BOOK39_KEYS = (
+    _keys("book24_name", "sub_book_name", "good_ending_plus", "chapters"),
+    _keys("book24_name", "sub_book_name", "good_ending_plus", "chapters"),
+)
 
 #: Templates that carry a note, which must not stand in a parameter that is not rendered.
 _NOTE_TEMPLATES = frozenset({DOCUMENTATION_NOTE, SCROLL_DIFFERENCE_NOTE})
+#: Templates with one place each: the verse label in column D, the aliyah in the label's עלייה
+#: and the good ending in good_ending_plus.
+_PLACED_TEMPLATES = frozenset({VERSE_LABEL, ALIYAH, GOOD_ENDING})
 
 _PARASHAH_TYPES = {"פפ": "open", "פפפ": "open-line", "סס": "close", "ססס": "close-inline"}
 _POETIC_LEVELS = {"ר0": "0", "ר1": "1", "ר2": "2", "ר3": "3", "ר4": "4"}
@@ -281,6 +298,26 @@ def check_aliyah(value: Any) -> dict[str, str]:
     return {key: _string(name, params, key) for key in params}
 
 
+def _check_keys(value: Any, schema: tuple[frozenset[str], frozenset[str]], what: str) -> None:
+    if not isinstance(value, dict):
+        raise PlusFormatError(f"{what} is not an object: {value!r}")
+    required, allowed = schema
+    if not required <= value.keys() <= allowed:
+        raise PlusFormatError(
+            f"{what}: keys {sorted(value)}; required {sorted(required)}, allowed {sorted(allowed)}"
+        )
+
+
+def check_plus_file(data: Any, where: str) -> None:
+    """The keys of a plus file, of its header and of each of its book39s."""
+    _check_keys(data, PLUS_FILE_KEYS, where)
+    _check_keys(data["header"], HEADER_KEYS, f"{where}: header")
+    if not isinstance(data["book39s"], list):
+        raise PlusFormatError(f"{where}: book39s is not a list")
+    for index, book39 in enumerate(data["book39s"]):
+        _check_keys(book39, BOOK39_KEYS, f"{where}: book39 {index}")
+
+
 class PlusToIntermediate:
     """Converts MAM-parsed plus verse columns into intermediate XML fragments.
 
@@ -316,7 +353,7 @@ class PlusToIntermediate:
             "מ:ששש": self._shirah_break,
             VERSE_LABEL: self._verse_label,
             ALIYAH: self._out_of_place,
-            "מ:סיום בטוב": self._out_of_place,
+            GOOD_ENDING: self._out_of_place,
         }
         handlers.update({name: self._parashah for name in _PARASHAH_TYPES})
         handlers.update({name: self._poetic for name in _POETIC_LEVELS})
@@ -355,16 +392,14 @@ class PlusToIntermediate:
     def _text(self, value: str, column: str) -> str:
         if _UNEXPECTED_TEXT_RE.search(value):
             raise PlusFormatError(f"unexpected markup in text: {value!r}")
-        text = value.replace(_SPACE_CODE, " ")
-        if column == "C":
-            text = _LINE_BREAK_RE.sub("<miqra:lb/>", text)
-        return text
+        return value.replace(_SPACE_CODE, " ") if column == "C" else value
 
     def _unrendered(self, value: Any) -> None:
         """Check a parameter that is not rendered: an alternative reading or apparatus.
 
         Its templates must be known and well formed, and it may hold no note, which would
-        vanish from the output.
+        vanish from the output, and no verse label, aliyah or good ending, which belong
+        elsewhere.
         """
         if isinstance(value, str):
             if _UNEXPECTED_TEXT_RE.search(value):
@@ -377,10 +412,38 @@ class PlusToIntermediate:
                 self._unrendered(item)
             return
         name, params = template_params(value)
-        if name in _NOTE_TEMPLATES:
+        if name in _NOTE_TEMPLATES or name in _PLACED_TEMPLATES:
             raise PlusFormatError(f"{name} in a parameter that is not rendered")
         for item in params.values():
             self._unrendered(item)
+
+    def check_good_ending(self, value: Any, where: str) -> None:
+        """Check a book39's good_ending_plus, which is not rendered.
+
+        It is null, or the chapter and verse it follows (``last_chapnver``) and the good ending
+        itself (``wikitext_element``): a נוסח whose 1 is מ:סיום בטוב and whose 2 is its note.
+        """
+        if value is None:
+            return
+        if not isinstance(value, dict) or value.keys() != {"last_chapnver", "wikitext_element"}:
+            raise PlusFormatError(f"{where}: unexpected good_ending_plus {value!r}")
+        chapnver = value["last_chapnver"]
+        if not (
+            isinstance(chapnver, list)
+            and len(chapnver) == 2
+            and all(isinstance(n, str) and _NUMBER.fullmatch(n) for n in chapnver)
+        ):
+            raise PlusFormatError(f"{where}: unexpected good ending last_chapnver {chapnver!r}")
+        name, params = template_params(value["wikitext_element"])
+        if name != DOCUMENTATION_NOTE:
+            raise PlusFormatError(f"{where}: the good ending is {name}, not {DOCUMENTATION_NOTE}")
+        ending_name, ending_params = template_params(params["1"])
+        if ending_name != GOOD_ENDING:
+            raise PlusFormatError(
+                f"{where}: the good ending's {DOCUMENTATION_NOTE} documents {ending_name}"
+            )
+        self._unrendered(ending_params["1"])
+        self._unrendered(params["2"])
 
     def _next_note_id(self) -> str:
         self._note_seq += 1
@@ -491,22 +554,16 @@ class PlusToIntermediate:
         )
 
     def _trivial_qere(self, name: str, params: dict[str, Any], column: str) -> str:
-        """מ:קו״כ-אם-2: 1 is the pointed ketiv, rendered; 2 the unpointed ketiv and 3 the
-        pointed qere, kept as apparatus the stylesheet does not render; מקורות and סוג are
-        not rendered."""
+        """מ:קו״כ-אם-2: 1 is the pointed ketiv, rendered; 2, the unpointed ketiv, and 3, the
+        pointed qere, are alternative forms, checked and not rendered; מקורות and סוג are not
+        rendered."""
         display = self._render(params["1"], column)
-        ketiv = self._render(params["2"], column)
-        qeri = self._render(params["3"], column)
+        self._unrendered(params["2"])
+        self._unrendered(params["3"])
         for key in ("מקורות", "סוג"):
             if key in params:
                 _string(name, params, key)
-        return (
-            f"{display}"
-            f"<miqra:kq-matres>"
-            f"<miqra:ketiv>{ketiv}</miqra:ketiv>"
-            f"<miqra:qeri>{qeri}</miqra:qeri>"
-            f"</miqra:kq-matres>"
-        )
+        return display
 
     def _ketiv_only(self, name: str, params: dict[str, Any], column: str) -> str:
         """כתיב ולא קרי: 1 is the ketiv as MAM shows it, in parentheses; 2 (and 3) are other
@@ -542,8 +599,14 @@ class PlusToIntermediate:
         return word
 
     def _inverted_nun(self, name: str, params: dict[str, Any], column: str) -> str:
-        """מ:נו״ן הפוכה: 1 is the inverted nun, with the space after it where MAM has one."""
-        return f"<miqra:inverted-nun>{self._render(params['1'], column)}</miqra:inverted-nun>"
+        """מ:נו״ן הפוכה: 1 is the inverted nun, with the space after it where MAM has one.
+
+        In whatever column, a ``__`` in it is read as that space: MAM-basics wrote the space
+        after Psalm 107's inverted nuns as ``__`` until its commit de85675 (2026-10-15), so a
+        download of an earlier commit, through ``download --commit``, still has it.
+        """
+        nun = self._render(params["1"], column).replace(_SPACE_CODE, " ")
+        return f"<miqra:inverted-nun>{nun}</miqra:inverted-nun>"
 
     # --- choices ---
 
@@ -561,13 +624,18 @@ class PlusToIntermediate:
 
     def _dual_cantillation(self, name: str, params: dict[str, Any], column: str) -> str:
         """מ:כפול: כפול is the dually accented text, whose notes are kept; א and ב are its two
-        singly accented strands (ta'am tachton and ta'am elyon in the Decalogues)."""
-        parts = {key: self._render(value, column) for key, value in params.items()}
+        singly accented strands (ta'am tachton and ta'am elyon in the Decalogues).
+
+        They are rendered in that order, not in the JSON's key order, so that their notes are
+        numbered the same whatever the order of the keys."""
+        merged = self._render(params["כפול"], column)
+        first = self._render(params["א"], column)
+        second = self._render(params["ב"], column)
         return (
             "<miqra:dual-accent>"
-            f"<miqra:merged>{parts['כפול']}</miqra:merged>"
-            f'<miqra:strand role="א">{parts["א"]}</miqra:strand>'
-            f'<miqra:strand role="ב">{parts["ב"]}</miqra:strand>'
+            f"<miqra:merged>{merged}</miqra:merged>"
+            f'<miqra:strand role="א">{first}</miqra:strand>'
+            f'<miqra:strand role="ב">{second}</miqra:strand>'
             "</miqra:dual-accent>"
         )
 
@@ -613,8 +681,10 @@ class PlusToIntermediate:
     def _verse_label(self, name: str, params: dict[str, Any], column: str) -> str:
         """מ:פסוק: 1 to 3 are the book, chapter and verse; סדר the seder; עלייה the aliyah.
 
-        None of it is rendered: chapter and verse come from the JSON keys, and the humash
-        reads the aliyot itself (``humash.aliyot``)."""
+        It belongs in column D only. None of it is rendered: chapter and verse come from the
+        JSON keys, and the humash reads the aliyot itself (``humash.aliyot``)."""
+        if column != "D":
+            raise PlusFormatError(f"{name} in column {column}")
         for key in ("1", "2", "3", "סדר"):
             if key in params:
                 _string(name, params, key)

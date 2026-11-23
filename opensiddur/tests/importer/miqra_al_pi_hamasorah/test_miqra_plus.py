@@ -9,6 +9,7 @@ from opensiddur.importer.miqra_al_pi_hamasorah.miqra_plus import (
     _escape_outside_tags,
     _wikitext_basic_markup_to_xml,
     _xml_escape,
+    check_plus_file,
     link_target_to_uri,
 )
 
@@ -111,9 +112,8 @@ class TestPlusToIntermediate(unittest.TestCase):
 
     def test_trivial_qere_shows_the_pointed_ketiv(self):
         frag = convert(t("מ:קו״כ-אם-2", p1="הַהִ֖וא", p2="ההוא", p3="הַהִ֖יא", מקורות="ל-קרי", סוג="כתיב הוא קרי היא"))
-        self.assertTrue(frag.startswith("הַהִ֖וא<miqra:kq-matres>"))
-        self.assertIn("<miqra:qeri>הַהִ֖יא</miqra:qeri>", frag)
-        self.assertNotIn("ל-קרי", frag)
+        # The unpointed ketiv and the pointed qere are alternative forms, not rendered.
+        self.assertEqual(frag, convert("הַהִ֖וא"))
 
     def test_ketiv_only_and_qeri_only(self):
         k = convert(t("כתיב ולא קרי", p1="(אם)־", p2="אם"))
@@ -158,10 +158,12 @@ class TestPlusToIntermediate(unittest.TestCase):
         self.assertNotIn("ויקיטקסט:מבוא", frag)
         self.assertIn("פרק שני", frag)
 
-    def test_column_c_double_underscore_and_line_break(self):
+    def test_a_double_underscore_is_a_space_in_column_c_only(self):
+        # Column C's usual separator, bare or documented; plus has none in columns D and E.
         self.assertEqual(convert("__", column="C"), " ")
-        self.assertIn("<miqra:lb/>", convert("א//ב", column="C"))
-        self.assertNotIn("<miqra:lb/>", convert("http://host/path", column="C"))
+        documented = convert(t("נוסח", p1="__", p2="הערה"), column="C")
+        self.assertIn("<miqra:display> </miqra:display>", documented)
+        self.assertEqual(convert("א__ב", column="E"), "א__ב")
 
     def test_stress_helpers_show_the_first_parameter_only(self):
         for name, plain, helped in (("מ:דחי", "חַ֭טָּאִים", "חַ֭טָּאִ֭ים"), ("מ:צינור", "בָטַחְתִּי֮", "בָטַ֮חְתִּי֮")):
@@ -181,11 +183,17 @@ class TestPlusToIntermediate(unittest.TestCase):
             self.assertIn(f'<miqra:poetic level="{level}"/>', convert(t(name)))
 
     def test_letter_formatting(self):
-        frag = convert(t("מ:אות-ק", p1="ק"), t("מ:אות תלויה", p1="ת"), t("מ:נו״ן הפוכה", p1="׆__"))
+        frag = convert(t("מ:אות-ק", p1="ק"), t("מ:אות תלויה", p1="ת"), t("מ:נו״ן הפוכה", p1="׆ "))
         self.assertIn('rend="small"', frag)
         self.assertIn('rend="raised"', frag)
-        # A double underscore stands for a space, after the inverted nun as in column C.
+        # Plus gives the inverted nun with the space after it.
         self.assertIn("<miqra:inverted-nun>׆ </miqra:inverted-nun>", frag)
+
+    def test_inverted_nun_with_the_earlier_space_code(self):
+        # MAM-basics wrote that space as a double underscore until 2026-10-15.
+        self.assertEqual(
+            convert(t("מ:נו״ן הפוכה", p1="׆__")), "<miqra:inverted-nun>׆ </miqra:inverted-nun>"
+        )
 
     def test_punctuation_and_maqaf(self):
         frag = convert(t("מ:לגרמיה-2"), t("מ:פסק"), t("מ:מקף אפור"))
@@ -228,6 +236,13 @@ class TestPlusToIntermediate(unittest.TestCase):
         self.assertIn('<miqra:strand role="א">א</miqra:strand>', frag)
         self.assertIn('<miqra:strand role="ב">ב</miqra:strand>', frag)
 
+    def test_dual_cantillation_numbers_its_notes_merged_text_first(self):
+        # Whatever the order of the JSON's keys: כפול, then א, then ב.
+        frag = convert(t("מ:כפול", ב=[t("נוסח", p1="ב", p2="3")], א=[t("נוסח", p1="א", p2="2")],
+                         כפול=[t("נוסח", p1="ד", p2="1")]))
+        for number in ("1", "2", "3"):
+            self.assertIn(f'<miqra:note xml:id="miqra-note-{number}">{number}</miqra:note>', frag)
+
     def test_dual_accent_keeps_apparatus_of_merged_text(self):
         """The manuscript apparatus hangs off the merged doubly-accented reading, so
         ``כפול`` must be an element: in an attribute the note markup would be escaped away."""
@@ -263,22 +278,111 @@ class TestClosedDispatch(unittest.TestCase):
         with self.assertRaises(PlusFormatError):
             convert(t("מ:עלייה", א="בראשית", ב0="בראשית"))
 
+    def test_note_in_a_trivial_qere_alternative_raises(self):
+        note = t("נוסח", p1="א", p2="הערה")
+        for key in ("p2", "p3"):
+            params = {"p1": "א", "p2": "א", "p3": "א", key: note}
+            with self.subTest(key=key), self.assertRaises(PlusFormatError):
+                convert(t("מ:קו״כ-אם-2", **params))
+
+    def test_verse_label_outside_column_d_raises(self):
+        label = t("מ:פסוק", p1="בראשית", p2="א", p3="א")
+        self.assertEqual(convert(label, column="D"), "")
+        for column in ("C", "E"):
+            with self.subTest(column=column), self.assertRaises(PlusFormatError):
+                convert(label, column=column)
+
+    def test_placed_template_in_an_unrendered_alternative_raises(self):
+        for placed in (t("מ:פסוק", p1="בראשית", p2="א", p3="א"), t("מ:עלייה", א="בראשית", ב0="בראשית"),
+                       t("מ:סיום בטוב", p1="סיום")):
+            with self.subTest(placed=placed["tmpl_name"]), self.assertRaises(PlusFormatError):
+                convert(t("מ:דחי", p1="א", p2=["א", placed]))
+
     def test_every_verse_of_the_download_converts(self):
-        """Every template in the downloaded MAM-parsed plus files is known and well formed."""
+        """Every plus file, header and book39 has the expected keys, and every template in the
+        verses and good endings of the downloaded MAM-parsed plus files is known and well formed."""
         plus = Path(__file__).resolve().parents[4] / "sourcetexts" / "sources" / "miqra_al_pi_hamasorah" / "plus"
         paths = sorted(plus.glob("*.json"))
         if not paths:
             self.skipTest("MAM-parsed plus not in workspace")
         converter = PlusToIntermediate()
         names = set()
+        good_endings = 0
         for path in paths:
-            for book39 in json.loads(path.read_text(encoding="utf-8"))["book39s"]:
+            plus_file = json.loads(path.read_text(encoding="utf-8"))
+            check_plus_file(plus_file, path.name)
+            for book39 in plus_file["book39s"]:
+                good_ending = book39["good_ending_plus"]
+                converter.check_good_ending(good_ending, path.name)
+                if good_ending is not None:
+                    good_endings += 1
+                    names.update(_names(good_ending["wikitext_element"]))
                 for verses in book39["chapters"].values():
                     for columns in verses.values():
                         for nodes, column in zip(columns, "CDE"):
                             converter.column(nodes, column)
                             names.update(_names(nodes))
         self.assertLessEqual(names, set(TEMPLATE_SCHEMAS))
+        self.assertGreater(good_endings, 0)
+
+
+class TestGoodEnding(unittest.TestCase):
+    """good_ending_plus is checked, not rendered: null, or a נוסח documenting a מ:סיום בטוב."""
+
+    def _good_ending(self, **changes) -> dict:
+        ending = {
+            "last_chapnver": ["66", "24"],
+            "wikitext_element": t("נוסח", p1=t("מ:סיום בטוב", p1="סיום טוב"), p2="הערה"),
+        }
+        ending.update(changes)
+        return ending
+
+    def test_null_and_the_plus_shape_pass(self):
+        converter = PlusToIntermediate()
+        converter.check_good_ending(None, "isaiah")
+        converter.check_good_ending(self._good_ending(), "isaiah")
+
+    def test_other_shapes_raise(self):
+        cases = {
+            "an extra key": self._good_ending(extra=1),
+            "no verse": {"wikitext_element": self._good_ending()["wikitext_element"]},
+            "a verse that is not two numbers": self._good_ending(last_chapnver=["66"]),
+            "a bare good ending": self._good_ending(wikitext_element=t("מ:סיום בטוב", p1="סיום")),
+            "another documented template": self._good_ending(
+                wikitext_element=t("נוסח", p1=t("מ:קמץ", ד="א", ס="א"), p2="הערה")),
+            "a note in the note": self._good_ending(
+                wikitext_element=t("נוסח", p1=t("מ:סיום בטוב", p1="סיום"), p2=[t("נוסח", p1="א", p2="ב")])),
+        }
+        for case, ending in cases.items():
+            with self.subTest(case=case), self.assertRaises(PlusFormatError):
+                PlusToIntermediate().check_good_ending(ending, "isaiah")
+
+
+class TestPlusFileKeys(unittest.TestCase):
+    HEADER = {"book24_name": "ספר ישעיהו", "sub_book_names": None, "chapter_counts": {}}
+    BOOK39 = {"book24_name": "ספר ישעיהו", "sub_book_name": None, "good_ending_plus": None, "chapters": {}}
+
+    def test_the_plus_keys_pass(self):
+        check_plus_file({"header": self.HEADER, "book39s": [self.BOOK39]}, "C1-Isaiah.json")
+        # MAM-basics' headers have had a consumer_notice since 2026-09-16.
+        header = {**self.HEADER, "consumer_notice": {}}
+        check_plus_file({"header": header, "book39s": [self.BOOK39]}, "C1-Isaiah.json")
+
+    def test_other_keys_raise(self):
+        cases = {
+            "an extra file key": {"header": self.HEADER, "book39s": [self.BOOK39], "x": 1},
+            "a header without its chapter counts": {
+                "header": {k: v for k, v in self.HEADER.items() if k != "chapter_counts"},
+                "book39s": [self.BOOK39]},
+            "an extra header key": {"header": {**self.HEADER, "x": 1}, "book39s": [self.BOOK39]},
+            "a book39 without its good ending": {
+                "header": self.HEADER,
+                "book39s": [{k: v for k, v in self.BOOK39.items() if k != "good_ending_plus"}]},
+            "an extra book39 key": {"header": self.HEADER, "book39s": [{**self.BOOK39, "x": 1}]},
+        }
+        for case, data in cases.items():
+            with self.subTest(case=case), self.assertRaises(PlusFormatError):
+                check_plus_file(data, "C1-Isaiah.json")
 
 
 def _names(value) -> set[str]:
