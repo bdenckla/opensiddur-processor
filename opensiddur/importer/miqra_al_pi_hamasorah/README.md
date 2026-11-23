@@ -15,7 +15,7 @@ Writes into the `sourcetexts` submodule (`sourcetexts/sources`) by default; pass
 uv run python -m opensiddur.importer.miqra_al_pi_hamasorah.download
 ```
 
-MAM-basics publishes no releases of the files, so a download is pinned to a commit: `COMMIT` in `download.py`, or `--commit`, which also takes a branch or tag (resolved to its commit through GitHub's API). Use `--dry-run` to print paths without downloading. A run whose commit and files match the manifest downloads nothing and writes nothing; a file that Git for Windows has checked out with CRLF line ends still matches.
+MAM-basics publishes no releases of the files, so a download is pinned to a commit: `COMMIT` in `download.py`, or `--commit`, which also takes a branch or tag (resolved to its commit through GitHub's API). Use `--dry-run` to print paths without downloading. A run whose commit and files match the manifest downloads nothing and writes nothing. Files are compared byte for byte, so the sourcetexts commit that adds the download needs the `.gitattributes` line `sources/miqra_al_pi_hamasorah/** -text`, which keeps Git for Windows from turning their line ends into CRLF.
 
 Output layout:
 

@@ -25,7 +25,7 @@ from opensiddur.importer.miqra_al_pi_hamasorah.download import (
     LICENSE_NAME,
     MANIFEST_NAME,
     _FULL_SHA,
-    content_sha256,
+    file_sha256,
 )
 from opensiddur.importer.miqra_al_pi_hamasorah.miqra_plus import (
     MIQRA_NS,
@@ -352,9 +352,8 @@ def _listed_contents(
 ) -> dict[str, str]:
     """The text of each file the manifest lists, by its path there, after checking it.
 
-    A file must match the manifest's SHA-256 (with CRLF read as LF, as the downloader's own
-    check reads it: ``download.content_sha256``), so that a download that failed or was
-    edited is never credited to the manifest's commit.
+    A file must match the manifest's SHA-256, byte for byte, so that a download that failed or
+    was edited is never credited to the manifest's commit.
     """
     files = manifest.get("files")
     if not isinstance(files, list) or not files:
@@ -365,9 +364,9 @@ def _listed_contents(
         if not path.is_file():
             raise PlusFormatError(f"{path}, which {manifest_path} lists, is missing (run download)")
         data = path.read_bytes()
-        if content_sha256(data) != entry["sha256"]:
+        if file_sha256(data) != entry["sha256"]:
             raise PlusFormatError(f"{path} is not the file {manifest_path} lists (run download)")
-        contents[entry["path"]] = data.replace(b"\r\n", b"\n").decode("utf-8")
+        contents[entry["path"]] = data.decode("utf-8")
     return contents
 
 

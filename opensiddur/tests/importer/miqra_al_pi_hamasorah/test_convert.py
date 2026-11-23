@@ -236,15 +236,6 @@ class TestLoadSource(unittest.TestCase):
     def test_the_listed_files_load(self):
         self.assertEqual(list(load_source(self.sourcetexts_root).book39s), ["רות"])
 
-    def test_a_crlf_copy_loads(self):
-        # As Git for Windows checks the committed files out (core.autocrlf).
-        for path in self.data_dir.rglob("*"):
-            if path.is_file():
-                path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
-        source = load_source(self.sourcetexts_root)
-        self.assertEqual(list(source.book39s), ["רות"])
-        self.assertIn("הייחוס בעברית", source.attributions["he"].statement)
-
     def test_a_file_that_differs_from_the_manifest_is_refused(self):
         for name in ("plus/E2-Ruth.json", "LICENSE.md"):
             path = self.data_dir / name

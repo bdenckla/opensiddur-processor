@@ -16,9 +16,11 @@ This writes ``<sourcetexts-root>/miqra_al_pi_hamasorah/``:
 Each file is checked against the Git blob SHA that GitHub lists for it at the commit. Every
 file is fetched and checked before any is written, and the manifest is written last, so a
 download that fails leaves the previous one as it was. A run whose commit and files match the
-manifest fetches nothing and writes nothing; a file whose line ends Git for Windows has turned
-into CRLF still matches (:func:`content_sha256`). A file under ``plus/`` that the previous
-manifest recorded and the commit no longer has is deleted.
+manifest fetches nothing and writes nothing. Files are compared byte for byte, so the
+sourcetexts commit that adds the download also adds the ``.gitattributes`` line
+``sources/miqra_al_pi_hamasorah/** -text``, which keeps Git for Windows from turning their line
+ends into CRLF. A file under ``plus/`` that the previous manifest recorded and the commit no
+longer has is deleted.
 
 The first download replaces ``manifest.json``, which described the retired Google Sheet export
 in ``sheets/``. The importer no longer reads ``sheets/``; the download leaves it for the
@@ -209,29 +211,17 @@ def _fetch(client: Client, commit: str, path: str, listed: dict[str, Any]) -> by
     data = client.get_bytes(raw_url(commit, path))
     if len(data) != listed["size"] or git_blob_sha(data) != listed["sha"]:
         raise DownloadError(f"{path} at {commit} does not match its listing")
-    if b"\r\n" in data:
-        # The checks compare content_sha256 with the manifest's SHA-256 of the bytes as
-        # downloaded, which are the same only for a file without CRLF.
-        raise DownloadError(f"{path} at {commit} has CRLF line ends")
     return data
 
 
-def _sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+def file_sha256(data: bytes) -> str:
+    """The SHA-256 the manifest records for a file: that of its bytes as downloaded.
 
-
-def content_sha256(data: bytes) -> str:
-    """The SHA-256 of a downloaded file's content, with CRLF line ends read as LF.
-
-    The integrity checks (the no-op check here and ``convert.load_source``'s) use it because
-    Git for Windows checks the committed LF files out with CRLF (``core.autocrlf``), and
-    reading CRLF as LF changes no file's meaning: in JSON a CR can only be whitespace between
-    tokens, since a CR inside a string is escaped (``\\r``), and LICENSE.md is Markdown, whose
-    text its line ends do not change. No byte of a UTF-8 multi-byte character is a CR or LF.
-    The downloaded files are LF (:func:`_fetch` refuses CRLF), so the manifest's SHA-256, of
-    the bytes as downloaded, is also their content's, and stays checkable against GitHub.
+    The checks compare it byte for byte, so the sourcetexts commit that adds the download
+    keeps Git from changing line ends (``sources/miqra_al_pi_hamasorah/** -text`` in its
+    ``.gitattributes``).
     """
-    return _sha256(data.replace(b"\r\n", b"\n"))
+    return hashlib.sha256(data).hexdigest()
 
 
 def load_manifest(data_dir: Path) -> dict[str, Any]:
@@ -252,7 +242,7 @@ def _intact(data_dir: Path, manifest: dict[str, Any]) -> bool:
     files = _recorded_files(manifest)
     return bool(files) and all(
         (data_dir / entry["path"]).is_file()
-        and content_sha256((data_dir / entry["path"]).read_bytes()) == entry["sha256"]
+        and file_sha256((data_dir / entry["path"]).read_bytes()) == entry["sha256"]
         for entry in files
     )
 
@@ -325,7 +315,7 @@ def download(
             "path": local_path,
             "url": raw_url(sha, remote_path),
             "bytes": len(data),
-            "sha256": _sha256(data),
+            "sha256": file_sha256(data),
         })
 
     # Every file has been fetched and checked before any is written, and the manifest is

@@ -134,13 +134,6 @@ class TestDownloadMiqra(unittest.TestCase):
             download.download(self.sourcetexts_root, commit=COMMIT, client=client)
         self.assertFalse((self.data_dir / "manifest.json").exists())
 
-    def test_a_file_with_crlf_line_ends_is_refused(self) -> None:
-        files = _files()
-        files["MAM-parsed/LICENSE.md"] = LICENSE.replace(b"\n", b"\r\n")
-        with self.assertRaisesRegex(download.DownloadError, "CRLF"):
-            download.download(self.sourcetexts_root, commit=COMMIT, client=FakeClient(files))
-        self.assertFalse((self.data_dir / "manifest.json").exists())
-
     def test_a_failed_download_leaves_the_previous_one_intact(self) -> None:
         download.download(self.sourcetexts_root, commit=COMMIT, client=FakeClient(_files()))
         before = {path: path.read_bytes() for path in self.data_dir.rglob("*") if path.is_file()}
@@ -156,20 +149,6 @@ class TestDownloadMiqra(unittest.TestCase):
         client.get_bytes = get_bytes
         with self.assertRaises(download.DownloadError):
             download.download(self.sourcetexts_root, commit=other, client=client)
-        after = {path: path.read_bytes() for path in self.data_dir.rglob("*") if path.is_file()}
-        self.assertEqual(after, before)
-
-    def test_a_crlf_copy_of_an_intact_download_is_a_no_op(self) -> None:
-        """As Git for Windows checks the committed files out (core.autocrlf)."""
-        download.download(self.sourcetexts_root, commit=COMMIT, client=FakeClient(_files()))
-        for path in self.data_dir.rglob("*"):
-            if path.is_file():
-                path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
-        before = {path: path.read_bytes() for path in self.data_dir.rglob("*") if path.is_file()}
-        client = FakeClient(_files())
-        result = download.download(self.sourcetexts_root, commit=COMMIT, client=client)
-        self.assertEqual(client.requests, [])
-        self.assertFalse(result.manifest_written)
         after = {path: path.read_bytes() for path in self.data_dir.rglob("*") if path.is_file()}
         self.assertEqual(after, before)
 

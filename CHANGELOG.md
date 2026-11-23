@@ -39,7 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   words in documented passages, which had become Wikisource links, are words again, and the
   other 11 ketiv-only and qere-only forms have MAM's one pair of parentheses or brackets
   instead of three. Deuteronomy 11:21's scroll-difference note is now marked before the sof
-  pasuq. `openpyxl` is no longer a dependency.
+  pasuq. `openpyxl` is no longer a dependency. The sourcetexts commit that adds the download
+  needs the `.gitattributes` line `sources/miqra_al_pi_hamasorah/** -text`, since `download`
+  and `convert` compare the files byte for byte.
 
 ### Fixed
 - Scan links no longer link pages of another printing among the pages of the one the book
