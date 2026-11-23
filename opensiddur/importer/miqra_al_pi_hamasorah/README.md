@@ -15,7 +15,7 @@ Writes into the `sourcetexts` submodule (`sourcetexts/sources`) by default; pass
 uv run python -m opensiddur.importer.miqra_al_pi_hamasorah.download
 ```
 
-MAM-basics publishes no releases of the files, so a download is pinned to a commit: `COMMIT` in `download.py`, or `--commit`, which also takes a branch or tag (resolved to its commit through GitHub's API). Use `--dry-run` to print paths without downloading. A run whose commit and files match the manifest downloads nothing and writes nothing.
+MAM-basics publishes no releases of the files, so a download is pinned to a commit: `COMMIT` in `download.py`, or `--commit`, which also takes a branch or tag (resolved to its commit through GitHub's API). Use `--dry-run` to print paths without downloading. A run whose commit and files match the manifest downloads nothing and writes nothing; a file that Git for Windows has checked out with CRLF line ends still matches.
 
 Output layout:
 
@@ -29,7 +29,9 @@ Output layout:
     FC-Chronicles.json
 ```
 
-Each file is checked against the Git blob SHA GitHub lists for it at the commit. A file under `plus/` that the previous manifest recorded and the commit no longer has is deleted; nothing else is touched.
+Each file is checked against the Git blob SHA GitHub lists for it at the commit. Every file is fetched and checked before any is written, and the manifest is written last, so a download that fails leaves the previous one as it was. A file under `plus/` that the previous manifest recorded and the commit no longer has is deleted.
+
+The first download replaces `manifest.json`, which described the retired Google Sheet export in `sheets/`. The importer no longer reads `sheets/`; the download leaves it for the maintainer to remove in the sourcetexts commit that adds the download.
 
 ## Convert
 
@@ -37,6 +39,6 @@ Each file is checked against the Git blob SHA GitHub lists for it at the commit.
 uv run python -m opensiddur.importer.miqra_al_pi_hamasorah.convert [--only-book genesis]
 ```
 
-Each plus file holds one or more books of the 39, each a set of chapters of verses; a verse is `[C, D, E]`: the separator from the previous verse, the verse label and the verse proper, as strings and templates. `miqra_plus.py` walks them with a closed dispatch: every template has a handler naming the role of each of its parameters (rendered text, note, apparatus, alternative), and an unknown template or parameter raises. It writes the intermediate XML that `miqra_to_tei.xslt` turns into TEI; `canonical_verses.py` first moves MAM's verses onto the canonical verse division. Chapter and verse numbers come from the JSON keys.
+Each plus file holds one or more books of the 39, each a set of chapters of verses; a verse is `[C, D, E]`: the separator from the previous verse, the verse label and the verse proper, as strings and templates. `miqra_plus.py` walks them with a closed dispatch: every template has a handler naming the role of each of its parameters (rendered text, note, apparatus, alternative), and an unknown template or parameter raises. It writes the intermediate XML that `miqra_to_tei.xslt` turns into TEI; `canonical_verses.py` first moves MAM's verses onto the canonical verse division. Chapter and verse numbers come from the JSON keys. `convert` reads only the files the manifest lists, and refuses one whose SHA-256 differs from the manifest's, or a JSON file in `plus/` that the manifest does not list, so that the text is never credited to a commit it was not taken from.
 
-Where MAM offers alternatives the importer keeps: both ketiv and qere (`tei:choice`); both cantillations of a span with two (`j:option`); the form without the stress helper (מ:דחי, מ:צינור); the grammatical qamats (מ:קמץ's `ד`). MAM's documentation notes and scroll-difference notes go to the `tei:standOff`, anchored where they stand. The good endings (`good_ending_plus`) are not imported.
+Where MAM offers alternatives the importer keeps: both ketiv and qere of כו״ק, קו״כ and מ:כו״ק מיוחד (`tei:choice`), but only the pointed ketiv of מ:קו״כ-אם-2; both cantillations of a span with two (`j:option`); the form without the stress helper (מ:דחי, מ:צינור); the grammatical qamats (מ:קמץ's `ד`). A word written and not read (כתיב ולא קרי) or read and not written (קרי ולא כתיב) has one form, which is kept in its parentheses or brackets (`tei:hi`). MAM's documentation notes and scroll-difference notes go to the `tei:standOff`: a note in the verse proper (column E) is anchored where it stands, and a note in the separator or the verse label (columns C and D) at the head of the verse. The good endings (`good_ending_plus`) are checked but not imported.
