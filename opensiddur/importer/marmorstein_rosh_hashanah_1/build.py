@@ -1109,10 +1109,12 @@ def documentary_order(div, order, readings, by_stem, lang, project):
                     anchor = element(div, 'anchor')
                     anchor.set(XML+'id', editorial['anchor'])
                     notes = element(div.getroottree().getroot(), 'standOff', type='notes')
-                    note = element(notes, 'note', type='commentary',
+                    kind = editorial.get('type', 'commentary')
+                    note = element(notes, 'note', type=kind,
                                    target='#'+editorial['anchor'], resp=editorial['resp'])
                     note.set(XML+'lang', lang)
-                    words(element(note, 'p'), editorial['text'], lang)
+                    content = note if kind in ('instruction', 'description') else element(note, 'p')
+                    words(content, editorial['text'], lang)
         elif 'page_break' in occurrence:
             page = occurrence['page_break'].get(lang)
             if page:

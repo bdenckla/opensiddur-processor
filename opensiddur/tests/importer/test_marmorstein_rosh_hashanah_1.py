@@ -1778,6 +1778,27 @@ class EditionWiringTest(unittest.TestCase):
             other = etree.parse(str(self.projects/project/file))
             self.assertIsNone(other.find('.//'+T+'note[@target="#draft_gap"]'))
 
+    def test_progress_description_has_inline_content_for_main_flow(self):
+        self.readings['documentary_instructions'] = {}
+        self.readings['source_order'] = [
+            {'section': 'draft_end', 'heading': {}, 'order': [{'unit': 'first'}]}]
+        text = 'The following source pages remain unencoded.'
+        self.readings['documentary_notes'] = [
+            {'after_section': 'draft_end', 'language': 'he', 'anchor': 'draft_gap',
+             'type': 'description',
+             'resp': 'urn:x-opensiddur:contributor:opensiddur.org/codex', 'text': text}]
+        self.save('readings', self.readings)
+        self.generate(draft=True)
+        root = etree.parse(str(self.projects/PROJECTS['he']/'index.xml'))
+        note = root.find('.//'+T+'standOff/'+T+'note')
+        self.assertEqual(note.get('type'), 'description')
+        self.assertEqual(note.get('target'), '#draft_gap')
+        self.assertEqual(''.join(note.itertext()), text)
+        # The HTML renderer supplies the block; a paragraph here would nest it.
+        self.assertIsNone(note.find(T+'p'))
+        unit = etree.parse(str(self.projects/PROJECTS['he']/'first.xml'))
+        self.assertIsNone(unit.find('.//'+T+'note[@target="#draft_gap"]'))
+
     def test_excerpt_coverage_cannot_certify_a_full_leaf(self):
         self.save('pages', {'pages': [{'scan_page': n, 'evidence': 'image'} for n in range(1, 5)]})
         self.save('page_completion', {'s1': {'status': 'complete', 'evidence': 'image', 'independent_model': 'second'}})

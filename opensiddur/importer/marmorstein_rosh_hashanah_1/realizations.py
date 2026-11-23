@@ -8,7 +8,7 @@ PLAIN_FRAGMENT_KEYS = {'scan','printed_page','text','page_start','join_next'}
 PLAIN_SEGMENT_KEYS = {'paragraph','fragments','corresp','source','source_reference',
                      'source_reference_corresp','chapter_corresp','reference_unit',
                      'end_reference','source_reference_end','source_reference_part'}
-OCCURRENCE_CONTROL_KEYS = {'conditions', 'condition_instruction',
+OCCURRENCE_CONTROL_KEYS = {'conditions', 'marked', 'condition_instruction',
                            'condition_instruction_language', 'speaker',
                            'speaker_before_reference'}
 CANONICAL_OCCURRENCE_KEYS = {'paragraph', 'fragments', 'canonical', 'canonical_end'} | OCCURRENCE_CONTROL_KEYS
@@ -24,6 +24,8 @@ def validate_occurrence_controls(segment):
         raise ValueError('Occurrence conditions require typed feature structures')
     if (segment.get('condition_instruction') or segment.get('condition_instruction_language')) and not conditions:
         raise ValueError('Occurrence condition instruction requires conditions')
+    if ('marked' in segment and type(segment['marked']) is not bool) or (segment.get('marked') and not conditions):
+        raise ValueError('Marked occurrence requires a boolean and conditions')
 
 
     speaker = segment.get('speaker')
@@ -104,6 +106,19 @@ def join_source_fragments(fragments):
 
 def source_text(segments):
     return join_source_fragments([f for segment in segments for f in segment['fragments']])
+
+
+def occurrence_content(segment):
+    """Printed parentheses belong to the occurrence's conditional, not its words."""
+    validate_occurrence_controls(segment)
+    text = source_text([segment])
+    if segment.get('marked'):
+        if (not segment.get('conditions') or len(segment['fragments']) != 1
+                or not text.startswith('(') or not text.endswith(')')
+                or not text[1:-1].strip() or '(' in text[1:-1] or ')' in text[1:-1]):
+            raise ValueError('Marked canonical occurrence requires one parenthesized source fragment')
+        return text[1:-1]
+    return text
 
 
 def segment_identity(segment):
@@ -329,7 +344,7 @@ def validate_occurrences(readings):
                     raise ValueError('Canonical occurrence must be one plain source fragment')
                 validate_occurrence_controls(segment)
                 actual = canonical_text(readings, lang, target, settings, segment.get('canonical_end'))
-                if ' '.join(actual.split()) != ' '.join(fragments[0]['text'].split()):
+                if ' '.join(actual.split()) != ' '.join(occurrence_content(segment).split()):
                     raise ValueError('Canonical occurrence differs from its image reading: '+unit['stem']+'/'+lang)
 
 
@@ -344,8 +359,8 @@ def validate_occurrences(readings):
                                 for s in occurrence['languages'].get(lang, [])
                                 if s.get('canonical') == identity and not s.get('canonical_end')]
                 for fragment in segment['fragments']:
-                    if not any(all(fragment.get(k) == witness.get(k)
-                                   for k in ('text', 'scan', 'printed_page'))
+                    if not any(fragment['text'] == occurrence_content(attestation)
+                               and all(fragment.get(k) == witness.get(k) for k in ('scan', 'printed_page'))
                                for attestation in attestations for witness in attestation['fragments']):
                         raise ValueError('Pure canonical part lacks a literal attestation: ' + identity)
     pure_roots = {u['urn'] for u in readings['units'] if u.get('canonical_parts')}
@@ -437,6 +452,10 @@ def review_payloads(readings, corrections=None):
                                      corrected_sha256=hashlib.sha256(normal(corrected).encode()).hexdigest(),
                                      resolved_sha256=hashlib.sha256(normal(actual).encode()).hexdigest(),
                                      literal_sha256=hashlib.sha256(normal(literal).encode()).hexdigest()))
+                if segment.get('marked'):
+                    fidelity[-1]['marked_delimiters'] = True
+                    fidelity[-1]['literal_content_sha256'] = hashlib.sha256(
+                        normal(occurrence_content(segment)).encode()).hexdigest()
             relevant_corrections = [b['item'] for b in bindings if b['language'] == lang
                                     and (b['host'] == unit['stem'] or any(stem == unit['stem'] for stem, _ in b['attesters']))]
             from . import PROJECTS
@@ -455,7 +474,7 @@ def prepare_documents(unit, readings):
     home_config = unit.get('canonical_home')
     if not home_config:
         return prepare_unit(unit, readings), None
-    if any(unit.get(k) for k in ('conditions','marked','instructions','head','opening_page',
+    if (unit.get('instructions') and home_config.get('context') != 'literal') or any(unit.get(k) for k in ('conditions','marked','head','opening_page',
                                    'publication_context','reuse','text_corresp','canonical_whole','poetry','citations','wording_selection')):
         raise ValueError('Canonical home cannot inherit occurrence controls')
     for segments in unit['languages'].values():
@@ -493,10 +512,16 @@ def prepare_documents(unit, readings):
         context['wording_selection'] = []
         for segments in context['languages'].values():
             for segment in segments:
+                identity = segment_identity(segment)
                 for key in ('corresp','reference_unit','source','source_reference',
                             'source_reference_corresp','chapter_corresp','end_reference',
                             'source_reference_end','source_reference_part'):
                     segment.pop(key, None)
+                # The documentary witness keeps its exact printed pagination,
+                # explicitly quoting the one canonical home instead of making
+                # another unmarked copy or duplicate correspondence mapping.
+                if identity:
+                    segment['source'] = identity
         return context, home
     context['wording_selection'] = selection(readings, unit['stem'])
     if home_config.get('text_corresp'):
@@ -579,6 +604,10 @@ def validate_generated(documents, readings):
                             previous_scan = fragment['scan']
                     actual_pbs, prefix = [], []
                     def walk(node):
+                        # Rubrics are preserved in the documentary context,
+                        # but are absent from the literal prayer fragments.
+                        if node.tag == T+'note':
+                            return
                         if node.tag == T+'pb':
                             actual_pbs.append((node.get('n'), node.get('facs'), ' '.join(''.join(prefix).split())))
                         prefix.append(node.text or '')

@@ -54,6 +54,37 @@ class LiteralBaselineTest(unittest.TestCase):
         altered=deepcopy(changed);altered['units'][0]['title']['he']='Changed'
         with self.assertRaises(ValueError):validate_baseline(altered,baseline)
 
+    def test_enabling_encoding_review_preserves_legacy_source_and_binds_mapping(self):
+        from opensiddur.importer.marmorstein_rosh_hashanah_1.realizations import review_payloads
+        original = {'units': [dict(stem='old', urn='urn:x-opensiddur:text:siddur:example',
+            title={'he': 'Example'}, languages={'he': [dict(paragraph=1,
+                fragments=[dict(scan='s1', printed_page='1', text='words', page_start=True)])]})]}
+        baseline = snapshot(original)
+        reviewed = deepcopy(original)
+        reviewed['units'][0]['review_encoding'] = True
+        validate_baseline(reviewed, baseline)
+        payload = {key: value for key, value, _ in review_payloads(reviewed)}
+        self.assertIn('realization/old/he', payload)
+        reviewed['units'][0]['languages']['he'][0]['end_reference'] = True
+        validate_baseline(reviewed, baseline)
+        changed = {key: value for key, value, _ in review_payloads(reviewed)}
+        self.assertNotEqual(payload['realization/old/he'], changed['realization/old/he'])
+        for mutation in ('text', 'title', 'disabled', 'non_boolean'):
+            with self.subTest(mutation=mutation):
+                bad = deepcopy(reviewed)
+                if mutation == 'text':
+                    bad['units'][0]['languages']['he'][0]['fragments'][0]['text'] = 'changed'
+                elif mutation == 'title':
+                    bad['units'][0]['title']['he'] = 'Changed'
+                else:
+                    bad['units'][0]['review_encoding'] = False if mutation == 'disabled' else 'yes'
+                with self.assertRaises(ValueError):
+                    validate_baseline(bad, baseline)
+        gated = snapshot(reviewed)
+        reviewed['units'][0].pop('review_encoding')
+        with self.assertRaises(ValueError):
+            validate_baseline(reviewed, gated)
+
     def test_redirection_preflight_checks_controls_and_interpretations(self):
         old=json.loads((BASELINE.parent/'marmorstein_qedushah_before_reuse.json').read_text())['unit']
         original={'units':[old]};validate_redirection(original,'amidah_qedushah',PARTS)

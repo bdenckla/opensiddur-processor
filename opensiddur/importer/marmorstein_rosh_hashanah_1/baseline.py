@@ -30,9 +30,21 @@ def snapshot(readings):
 
 def validate_baseline(readings, baseline):
     current = snapshot(readings)
+    units = {unit['stem']: unit for unit in readings['units']}
     for stem, accepted in baseline.items():
-        if current.get(stem) != accepted:
-            raise ValueError('Accepted source witness or protected raw fragment changed: ' + stem)
+        if current.get(stem) == accepted:
+            continue
+        # An older literal witness can acquire a metadata-review gate without
+        # changing its words or other protected fields. Compare against the
+        # exact legacy snapshot, not only its text hash. Once snapshotted with
+        # the gate enabled, removing it no longer matches that baseline.
+        unit = units.get(stem, {})
+        if unit.get('review_encoding') is True:
+            legacy = deepcopy(unit)
+            legacy.pop('review_encoding')
+            if snapshot({'units': [legacy]}).get(stem) == accepted:
+                continue
+        raise ValueError('Accepted source witness or protected raw fragment changed: ' + stem)
 
 
 def validate_redirection(readings, stem, identities):

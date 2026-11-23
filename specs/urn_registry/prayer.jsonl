@@ -23443,3 +23443,4 @@
 {"urn": "urn:x-opensiddur:text:prayer:asher_bemaamaro_bara", "status": "canonical", "label_he": "בָּרוּךְ אַתָּה יְהֹוָה אֱלֹהֵֽינוּ מֶֽלֶךְ הָעוֹלָם", "label_en": "asher bemaamaro bara"}
 {"urn": "urn:x-opensiddur:text:prayer:barukh_yotzerekh_barukh", "status": "canonical", "label_he": "בָּרוּךְ יוֹצְ֒רֵךְ בָּרוּךְ עוֹשֵׂךְ בָּרוּךְ קוֹנֵךְ", "label_en": "barukh yotzerekh barukh"}
 {"urn": "urn:x-opensiddur:text:prayer:tana_devei_rabbi", "status": "canonical", "label_he": "תָּנָא דְבֵי רַבִּי יִשְׁמָעֵאל אִלְמָלֵא לֹא", "label_en": "tana devei rabbi"}
+{"urn": "urn:x-opensiddur:text:prayer:ken_tagen_al_ammekha_yisrael", "status": "canonical", "label_en": "ken tagen al ammekha yisrael", "note": "Digitization of Heidenheim–Marmorstein, first-day Rosh ha-Shanah; structural scope or newly identified coherent text. See image/alignment review evidence for scans294–311."}

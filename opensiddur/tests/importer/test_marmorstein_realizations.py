@@ -1,5 +1,6 @@
 """Source evidence stays immutable while canonical mappings get their own review."""
 from copy import deepcopy
+from pathlib import Path
 import unittest
 
 from opensiddur.importer.marmorstein_rosh_hashanah_1.build import (
@@ -7,6 +8,7 @@ from opensiddur.importer.marmorstein_rosh_hashanah_1.build import (
 )
 from opensiddur.importer.marmorstein_rosh_hashanah_1.realizations import (
     prepare_unit, prepare_documents, validate_occurrences, review_payloads, selection,
+    validate_generated,
 )
 
 P = 'urn:x-opensiddur:text:prayer:example'
@@ -27,6 +29,98 @@ def fixture():
 
 
 class RealizationTest(unittest.TestCase):
+    def marked_fixture(self):
+        r = fixture()
+        r['wording_variants'] = []
+        host, caller = r['units']
+        host['canonical_parts'] = True
+        caller.pop('wording_selection')
+        word = host['languages']['en'][0]['fragments'][0]
+        word.update(text='memory', scan='s4', printed_page='2')
+        segment = caller['languages']['en'][0]
+        segment['fragments'][0]['text'] = '(memory)'
+        segment['marked'] = True
+        segment['conditions'] = [dict(type='opensiddur:holiday-aggregate', features={'shabbat': True})]
+        return r
+
+    def test_marked_canonical_word_preserves_source_delimiters_as_conditional_markup(self):
+        r = self.marked_fixture()
+        before = deepcopy(r)
+        validate_occurrences(r)
+        caller = r['units'][1]
+        root = unit_document(prepare_unit(caller, r), 'en', True)
+        self.assertEqual(len(root.xpath('//j:conditional[@type="marked"]', namespaces=NS)), 1)
+        self.assertEqual(root.xpath('//j:transclude/@target', namespaces=NS),
+                         [P+'/part@prayerbook_for_the_new_year-marmorstein-1965-en'])
+        body_text = ''.join(root.xpath('//tei:body', namespaces=NS)[0].itertext())
+        self.assertNotIn('(', body_text)
+        self.assertNotIn('memory', body_text)
+        self.assertEqual(r, before)
+        payload = dict((key, value) for key, value, _ in review_payloads(r))
+        import json
+        proof = json.loads(payload['realization/occurrence/en'])['source_fidelity'][0]
+        self.assertTrue(proof['marked_delimiters'])
+        self.assertEqual(proof['resolved_sha256'], proof['literal_content_sha256'])
+        self.assertNotEqual(proof['resolved_sha256'], proof['literal_sha256'])
+        caller['languages']['en'][0]['conditions'][0]['features']['shabbat'] = False
+        changed = {key: value for key, value, _ in review_payloads(r)}
+        self.assertNotEqual(payload['realization/occurrence/en'], changed['realization/occurrence/en'])
+
+    def test_marked_canonical_word_rejects_missing_conditions_or_unattested_delimiters(self):
+        for mutation in ['conditions', 'unparenthesized', 'empty', 'type', 'wrong_word', 'whitespace', 'nested', 'unbalanced']:
+            with self.subTest(mutation=mutation):
+                r = self.marked_fixture()
+                segment = r['units'][1]['languages']['en'][0]
+                if mutation == 'conditions':
+                    segment['conditions'] = []
+                elif mutation == 'type':
+                    segment['marked'] = 'yes'
+                else:
+                    segment['fragments'][0]['text'] = {
+                        'unparenthesized': 'memory', 'empty': '()', 'wrong_word': '(other)',
+                        'whitespace': '( )', 'nested': '(memory) (memory)',
+                        'unbalanced': '(memory (x)'}[mutation]
+                    if mutation in ('whitespace', 'nested', 'unbalanced'):
+                        r['units'][0]['languages']['en'][0]['fragments'][0]['text'] = segment['fragments'][0]['text'][1:-1]
+                with self.assertRaises(ValueError):
+                    validate_occurrences(r)
+
+    def test_literal_prayer_root_keeps_its_rubric_and_publishes_a_distinct_context(self):
+        r = fixture()
+        host = r['units'][0]
+        host['languages']['en'][0]['fragments'].append(
+            dict(scan='s3', printed_page='2', text='continued', page_start=True))
+        host['instructions'] = [dict(text='Congregation:', language='en', type='description')]
+        context_urn = 'urn:x-opensiddur:text:siddur:example/printing'
+        host['canonical_home'] = dict(file='words', urn=P, title=host['title'],
+            map_root=False, context='literal', context_urn=context_urn)
+        r['wording_variants'][0]['fragment'] = 0
+        r['units'][1]['languages']['en'][0]['fragments'][0]['text'] = 'forever continued'
+        before = deepcopy(host)
+        context, home = prepare_documents(host, r)
+        context_xml = unit_document(context, 'en', True)
+        home_xml = unit_document(home, 'en', True)
+        self.assertEqual(host, before)
+        self.assertEqual(context_xml.xpath('//tei:publicationStmt/tei:idno/text()', namespaces=NS),
+                         [context_urn+'@prayerbook_for_the_new_year-marmorstein-1965-en'])
+        self.assertEqual(home_xml.xpath('//tei:publicationStmt/tei:idno/text()', namespaces=NS),
+                         [P+'@prayerbook_for_the_new_year-marmorstein-1965-en'])
+        self.assertEqual(context_xml.xpath('//tei:body//tei:note/text()', namespaces=NS),
+                         ['Congregation:'])
+        self.assertFalse(home_xml.xpath('//tei:body//tei:note | //tei:pb', namespaces=NS))
+        self.assertEqual(len(context_xml.xpath('//tei:pb', namespaces=NS)), 2)
+        self.assertEqual(context_xml.xpath('//tei:body//@corresp', namespaces=NS), [context_urn])
+        self.assertEqual(context_xml.xpath('//tei:body//tei:seg/@source', namespaces=NS),
+                         [P+'/part', P+'/part'])
+        self.assertFalse(home_xml.xpath('//tei:pb', namespaces=NS))
+        validate_occurrences(r)
+        project = Path('prayerbook_for_the_new_year-marmorstein-1965-en')
+        validate_generated([(project/'host.xml', context_xml), (project/'words.xml', home_xml)], r)
+        receipts = {key: value for key, value, _ in review_payloads(r)}
+        host['instructions'][0]['text'] = 'Reader:'
+        changed = {key: value for key, value, _ in review_payloads(r)}
+        self.assertNotEqual(receipts['realization/host/en'], changed['realization/host/en'])
+
     def test_partial_translation_note_stays_in_source_header_and_requires_review(self):
         u=fixture()['units'][0]
         before=unit_review_text(u,'en')
@@ -417,7 +511,7 @@ class ControlledOccurrenceTest(unittest.TestCase):
         self.assertFalse(host.xpath('//j:conditional | //tei:note', namespaces=NS))
 
     def test_unmodeled_pointer_controls_and_fragment_interpretations_still_fail(self):
-        for key, value in [('marked', True), ('condition_end_corresp', P+'/part'),
+        for key, value in [('condition_end_corresp', P+'/part'),
                            ('instructions', [{}]), ('edition_label', 'I'),
                            ('anchor', 'here'), ('source_reference_part', {}),
                            ('deferred_page_boundary', True), ('transclude', P+'/part')]:
