@@ -122,7 +122,7 @@ def relaxng_validate(
         else:
             xml_content = etree.tostring(xml_doc, encoding='unicode', pretty_print=True)
         # Create temporary XML file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', encoding='utf-8') as xml_temp:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', encoding='utf-8', delete_on_close=False) as xml_temp:
             xml_temp.write(xml_content)
             xml_temp.flush()
             xml_temp.seek(0)
@@ -130,7 +130,7 @@ def relaxng_validate(
             # Handle schema input
             if isinstance(schema_file, str) and schema_file.strip().startswith('<'):
                 # Schema is provided as a string
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.rng', encoding='utf-8') as schema_temp:
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.rng', encoding='utf-8', delete_on_close=False) as schema_temp:
                     schema_content = re.sub(r'^<\?xml[^>]*\?>\s*', '', schema_file)
                     schema_temp.write(schema_content)
                     schema_temp.flush()
