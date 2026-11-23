@@ -65,6 +65,9 @@ DOCUMENTATION_URL = "https://bdenckla.github.io/MAM-basics/MAM-parsed/plus/html/
 API_URL = "https://api.github.com"
 RAW_URL = "https://raw.githubusercontent.com"
 USER_AGENT = "OpenSiddur-Processor/1.0 (https://github.com/opensiddur/opensiddur-processor)"
+#: The longest wait, in seconds, that the downloader sleeps through when GitHub asks it to
+#: wait; a longer one fails the download at once, saying when to try again.
+MAX_WAIT = 60.0
 
 MANIFEST_NAME = "manifest.json"
 LICENSE_NAME = "LICENSE.md"
@@ -76,11 +79,23 @@ class DownloadError(RuntimeError):
     pass
 
 
+def _rate_limited(response: requests.Response) -> bool:
+    """Whether the response is GitHub's rate limit.
+
+    GitHub marks its secondary rate limit on a 403 or 429 with ``Retry-After``, and its
+    primary one with ``X-RateLimit-Remaining: 0``.
+    """
+    headers = response.headers
+    return bool(headers.get("Retry-After")) or headers.get("X-RateLimit-Remaining") == "0"
+
+
 def _retry_delay(response: requests.Response, attempt: int, now: float) -> float:
-    """Seconds to wait before retrying a 429 or 503, as GitHub asks.
+    """Seconds to wait before retrying a 403, 429 or 503, as GitHub asks.
 
     ``Retry-After`` when the response has one; else, when it says the rate limit is used up
     (``X-RateLimit-Remaining: 0``), until ``X-RateLimit-Reset``, a Unix time; else 1, 2, 4...
+    A wait longer than the client's ``max_wait`` (:data:`MAX_WAIT`) is not taken: the download
+    fails at once.
     """
     headers = response.headers
     try:
@@ -103,18 +118,23 @@ def _rate_limit_reset(response: requests.Response) -> str:
 class Client:
     """HTTP for GitHub's API and raw files, with timeouts and a few retries.
 
-    A 429 or 5xx is retried, after the wait a 429 or 503 asks for (:func:`_retry_delay`); a 403
-    that says GitHub's rate limit is used up fails at once, saying so.
+    A 429, a 5xx and a 403 that is GitHub's rate limit (:func:`_rate_limited`) are retried,
+    after the wait a 403, 429 or 503 asks for (:func:`_retry_delay`); any other 403 fails at
+    once. That wait is taken when it is at most ``max_wait`` seconds (:data:`MAX_WAIT`); a
+    longer one fails the download at once, saying how long GitHub asked it to wait and, from
+    ``X-RateLimit-Reset``, until when.
     """
 
     def __init__(self, session: requests.Session | None = None, *, retries: int = 4,
-                 timeout: float = 60.0, sleep: Callable[[float], None] = time.sleep,
+                 timeout: float = 60.0, max_wait: float = MAX_WAIT,
+                 sleep: Callable[[float], None] = time.sleep,
                  clock: Callable[[], float] = time.time) -> None:
         self.session = session or requests.Session()
         # Assigned, not set by default: a requests session already has a User-Agent of its own.
         self.session.headers["User-Agent"] = USER_AGENT
         self.retries = retries
         self.timeout = timeout
+        self.max_wait = max_wait
         self.sleep = sleep
         self.clock = clock
 
@@ -125,18 +145,22 @@ class Client:
             delay = float(2 ** attempt)
             try:
                 response = self.session.get(url, headers=headers, timeout=self.timeout)
-                if response.status_code == 200:
+                status = response.status_code
+                if status == 200:
                     return response.content
-                if (response.status_code == 403
-                        and response.headers.get("X-RateLimit-Remaining") == "0"):
-                    raise DownloadError(
-                        f"GET {url}: HTTP 403: GitHub's API rate limit is used up"
-                        f"{_rate_limit_reset(response)}")
-                if response.status_code not in (429, 500, 502, 503, 504):
-                    raise DownloadError(f"GET {url}: HTTP {response.status_code}")
-                problem = f"HTTP {response.status_code}"
-                if response.status_code in (429, 503):
+                if status == 403 and not _rate_limited(response):
+                    raise DownloadError(f"GET {url}: HTTP 403")
+                if status not in (403, 429, 500, 502, 503, 504):
+                    raise DownloadError(f"GET {url}: HTTP {status}")
+                problem = f"HTTP {status}"
+                if status in (403, 429, 503):
                     delay = _retry_delay(response, attempt, self.clock())
+                    if delay > self.max_wait:
+                        who = "GitHub" if status == 503 else "GitHub's rate limit"
+                        raise DownloadError(
+                            f"GET {url}: HTTP {status}: {who} asks for a wait of {delay:.0f} s"
+                            f"{_rate_limit_reset(response)}, more than the {self.max_wait:.0f} s "
+                            "the downloader waits; try again then")
             except requests.RequestException as exc:
                 problem = str(exc) or type(exc).__name__
             # No wait after the last attempt: nothing follows it.

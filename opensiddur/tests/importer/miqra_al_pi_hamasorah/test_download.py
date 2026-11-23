@@ -231,12 +231,34 @@ class TestClient(unittest.TestCase):
             self.assertEqual(client.get_bytes(self.URL), b"ok")
         self.assertEqual(self.sleeps, [30.0])
 
-    def test_a_403_for_the_rate_limit_says_so(self) -> None:
+    def test_a_403_for_a_used_up_rate_limit_is_waited_out_until_its_reset(self) -> None:
         used_up = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1030"}
-        client, session = self._client(FakeResponse(403, used_up))
-        with self.assertRaisesRegex(download.DownloadError, "rate limit is used up until 1970-01-01T00:17:10"):
-            client.get_bytes(self.URL)
-        self.assertEqual((session.urls, self.sleeps), ([self.URL], []))
+        client, _ = self._client(FakeResponse(403, used_up), FakeResponse(200, content=b"ok"))
+        with self.assertLogs(download.logger, "WARNING"):
+            self.assertEqual(client.get_bytes(self.URL), b"ok")
+        self.assertEqual(self.sleeps, [30.0])
+
+    def test_a_403_with_retry_after_is_honoured(self) -> None:
+        # GitHub's secondary rate limit, while the primary one still has requests left.
+        limited = {"retry-after": "7", "x-ratelimit-remaining": "59"}
+        client, _ = self._client(FakeResponse(403, limited), FakeResponse(200, content=b"ok"))
+        with self.assertLogs(download.logger, "WARNING"):
+            self.assertEqual(client.get_bytes(self.URL), b"ok")
+        self.assertEqual(self.sleeps, [7.0])
+
+    def test_a_wait_of_more_than_a_minute_fails_at_once(self) -> None:
+        cases = (
+            (FakeResponse(429, {"retry-after": "3600"}), "asks for a wait of 3600 s"),
+            (FakeResponse(403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "4600"}),
+             "rate limit asks for a wait of 3600 s until 1970-01-01T01:16:40"),
+        )
+        for response, message in cases:
+            with self.subTest(status=response.status_code):
+                self.sleeps.clear()
+                client, session = self._client(response)
+                with self.assertRaisesRegex(download.DownloadError, message):
+                    client.get_bytes(self.URL)
+                self.assertEqual((session.urls, self.sleeps), ([self.URL], []))
 
     def test_another_403_is_not_retried(self) -> None:
         client, session = self._client(FakeResponse(403, {"x-ratelimit-remaining": "59"}))
