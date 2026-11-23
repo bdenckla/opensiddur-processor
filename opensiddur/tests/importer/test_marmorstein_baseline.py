@@ -3,6 +3,8 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import unittest
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from opensiddur.common.constants import SOURCETEXTS_ROOT
 from opensiddur.importer.marmorstein_rosh_hashanah_1 import BOOK
@@ -14,10 +16,18 @@ PARTS=['urn:x-opensiddur:text:prayer:amidah/qedushah/'+x
 
 
 def accepted_readings():
-    return json.loads((SOURCETEXTS_ROOT/BOOK/'readings.json').read_text())
+    path = SOURCETEXTS_ROOT/BOOK/'readings.json'
+    if not path.exists():
+        raise unittest.SkipTest('Accepted source integration requires the sourcetexts submodule')
+    return json.loads(path.read_text())
 
 
 class LiteralBaselineTest(unittest.TestCase):
+    def test_source_integration_reports_missing_submodule_as_skip(self):
+        with TemporaryDirectory() as folder, patch(__name__+'.SOURCETEXTS_ROOT', Path(folder)):
+            with self.assertRaisesRegex(unittest.SkipTest, 'sourcetexts submodule'):
+                accepted_readings()
+
     def test_all660_literal_witnesses_and_protected_raw_fields_stay_accepted(self):
         baseline=json.loads(BASELINE.read_text())
         self.assertEqual(sum(len(x['literal_sha256'])for x in baseline.values()),660)
