@@ -3142,6 +3142,13 @@ end
             <xsl:copy-of select="@*"/>
             <xsl:attribute name="f:note-lang" select="$note-lang"/>
             <xsl:attribute name="f:text-lang" select="$text-lang"/>
+            <!-- Preserve the trailing word boundary before a parallel copy
+                 detaches this rubric from its paragraph and next sibling. -->
+            <xsl:attribute name="f:needs-space-after"
+                select="@f:needs-space-after = 'true' or
+                        (exists(ancestor::tei:p | ancestor::tei:l)
+                         and matches(string(following-sibling::node()[string(.) ne ''][1]),
+                                     '^[\p{L}\p{N}\p{Ps}]'))"/>
             <xsl:attribute name="f:needs-space"
                 select="exists(ancestor::tei:p | ancestor::tei:l)
                         and matches(string(preceding-sibling::node()[string(.) ne ''][1]), '\S$')"/>
@@ -3958,9 +3965,10 @@ end
         <xsl:if test="$standalone and $command = 'instructionnote'"><xsl:text>}</xsl:text></xsl:if>
         <!-- Separate a run-in label from a following word even when that
              word is wrapped in an inline element without source whitespace. -->
-        <xsl:if test="$within and not($crosses) and not(@f:parallel-block = 'true')
-                      and matches(string(following-sibling::node()[string(.) ne ''][1]),
-                                  '^[\p{L}\p{N}\p{Ps}]')">
+        <xsl:if test="$command = 'instructionnote' and
+                      (@f:needs-space-after = 'true' or
+                       ($within and matches(string(following-sibling::node()[string(.) ne ''][1]),
+                                            '^[\p{L}\p{N}\p{Ps}]')))">
             <xsl:text>\ </xsl:text>
         </xsl:if>
         </xsl:if>
