@@ -3910,6 +3910,13 @@ end
         <xsl:text>{</xsl:text>
         <xsl:call-template name="note-content"/>
         <xsl:text>}</xsl:text>
+        <!-- Separate a run-in label from a following word even when that
+             word is wrapped in an inline element without source whitespace. -->
+        <xsl:if test="$within and not($crosses) and not(@f:parallel-block = 'true')
+                      and matches(string(following-sibling::node()[string(.) ne ''][1]),
+                                  '^[\p{L}\p{N}\p{Ps}]')">
+            <xsl:text>\ </xsl:text>
+        </xsl:if>
         </xsl:if>
     </xsl:template>
 
