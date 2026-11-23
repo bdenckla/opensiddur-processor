@@ -64,6 +64,7 @@ import argparse
 import logging
 import sys
 from dataclasses import replace
+from itertools import groupby
 from pathlib import Path
 
 from opensiddur.common.versification import MIQRA_PROJECT
@@ -407,6 +408,41 @@ def _is_contiguous(
     if prev.end.half == "a" and following.start == replace(prev.end, half="b"):
         return True
     return next_verse(prev.end.whole_verse, sourcetexts_root) == following.start
+
+
+def _run_extent(run: list[ReadingSpan]) -> ReadingSpan:
+    """The stretch of its book a run of spans reads, as one span."""
+    return replace(
+        run[0], start=min(span.start for span in run), end=max(span.end for span in run)
+    )
+
+
+def _reading_runs(
+    spans: list[ReadingSpan], sourcetexts_root: Path | None,
+) -> list[list[ReadingSpan]]:
+    """A day's Torah aliyot, in the order they are read, cut into runs of one stretch each.
+
+    An aliyah stays in the run before it when it reads again some of the verses the run has
+    read — weekday Rosh Hodesh's second aliyah opens at Numbers 28:3, where the first ended, and
+    on the intermediate days of Sukkot the fourth aliyah reads two of the aliyot before it
+    again — or when it picks up where the run leaves off. One that skips ahead, steps back to verses the run has not
+    read, or moves to another book opens a new run: the fast days skip from Exodus 32:14 to
+    34:1, and the sixth day of Hanukkah steps back from Numbers 28 to Numbers 7. Segmenting each
+    run by itself keeps the verses between two runs out of the reading.
+    """
+    runs: list[list[ReadingSpan]] = []
+    for span in spans:
+        if runs:
+            extent = _run_extent(runs[-1])
+            if span.book == extent.book and (
+                extent.start <= span.end
+                if span.start <= extent.end
+                else _is_contiguous(extent, span, sourcetexts_root)
+            ):
+                runs[-1].append(span)
+                continue
+        runs.append([span])
+    return runs
 
 
 _CONDITION_INDEX = {"value": 0}
@@ -820,25 +856,27 @@ def festival_file(
     reading: dict,
     sourcetexts_root: Path | None = None,
 ) -> tuple[str, str]:
-    """One festival or special-Shabbat reading, with its haftarah."""
+    """One festival or special-Shabbat reading, with its haftarah.
+
+    The Torah reading is emitted in the order its aliyot are read (readings.festival_readings
+    keeps hebcal's order), a run at a time (`_reading_runs`). A citation listing a book's runs
+    opens them, and a citation of its own opens each later run, as in a discontinuous haftarah
+    (`_passage_xml`).
+    """
     urn_base = f"{URN_PREFIX}:reading/{slug}"
     name = reading["name"]
     parts: list[str] = []
 
-    spans = reading["aliyot"]
-    if spans:
-        by_book: dict[str, list[ReadingSpan]] = {}
-        for span in spans:
-            by_book.setdefault(span.book, []).append(span)
-        for book_spans in by_book.values():
-            ordered = sorted(book_spans, key=lambda span: (span.start, span.end))
-            book = ordered[0].book
-            start = min(span.start for span in ordered)
-            end = max(span.end for span in ordered)
-            parts.append(_citation_milestone(_citation_range(book, start, end)))
-            segments = model.segment_reading(
-                ordered, sourcetexts_root=sourcetexts_root
-            )
+    runs = _reading_runs(reading["aliyot"], sourcetexts_root)
+    segmented = [model.segment_reading(run, sourcetexts_root=sourcetexts_root) for run in runs]
+    model.mark_repeats([segment for segments in segmented for segment in segments])
+    for _, book_runs in groupby(zip(runs, segmented), key=lambda item: item[0][0].book):
+        book_runs = list(book_runs)
+        extents = [_run_extent(run) for run, _ in book_runs]
+        parts.append(_citation_milestone(_citation(extents)))
+        for index, ((_, segments), extent) in enumerate(zip(book_runs, extents)):
+            if index:
+                parts.append(_citation_milestone(_citation([extent])))
             parts.extend(_segment_xml(s, urn_base, sourcetexts_root) for s in segments)
 
     # The haftarah gets a division of its own, headed, rather than following the maftir inside
