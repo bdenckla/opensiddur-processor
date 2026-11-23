@@ -234,6 +234,24 @@ class TestMiqraConvert(unittest.TestCase):
                 _convert(sourcetexts_root, project_dir)
             self.assertFalse(project_dir.exists())
 
+    @patch("opensiddur.importer.miqra_al_pi_hamasorah.convert.validate")
+    def test_check_converts_and_writes_nothing(self, mock_validate):
+        mock_validate.return_value = (True, [])
+        with tempfile.TemporaryDirectory() as tmp:
+            sourcetexts_root = Path(tmp) / "sources"
+            _write_source(sourcetexts_root, _with_other_books({}))
+            project_dir = Path(tmp) / "project"
+            self.assertEqual(_convert(sourcetexts_root, project_dir, "--check"), 0)
+            self.assertFalse(project_dir.exists())
+
+    def test_check_refuses_an_unknown_template(self):
+        genesis = _book39("ספר בראשית", {"1": {"1": _verse([{"tmpl_name": "גלגל"}])}})
+        with tempfile.TemporaryDirectory() as tmp:
+            sourcetexts_root = Path(tmp) / "sources"
+            _write_source(sourcetexts_root, _with_other_books({"A1-Genesis.json": [genesis]}))
+            with self.assertRaisesRegex(PlusFormatError, "unknown template"):
+                _convert(sourcetexts_root, Path(tmp) / "project", "--check")
+
     def test_book_names_resolve_sub_book_abbreviations(self):
         self.assertEqual(_book_name_he(_book39("ספר שמואל", {}, 'שמ"א')), "שמואל א")
         self.assertEqual(_book_name_he(_book39("ספר מלכים", {}, 'מל"ב')), "מלכים ב")

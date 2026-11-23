@@ -613,6 +613,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "converted, so that its notes are numbered as in a full run."
         ),
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "Read and convert the whole download, writing nothing (run it after moving "
+            "download.COMMIT)."
+        ),
+    )
     return parser
 
 
@@ -639,6 +647,11 @@ def main(argv: list[str] | None = None) -> int:
 
     source = load_source(args.sourcetexts_root)
     intermediates = convert_books(source)
+    if args.check:
+        logger.info(
+            "MAM-parsed plus at %s converts (all %d books)", source.commit, len(intermediates)
+        )
+        return 0
     if book is not None:
         book_file(
             book,

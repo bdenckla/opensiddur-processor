@@ -57,6 +57,8 @@ logger = logging.getLogger(__name__)
 
 REPOSITORY = "bdenckla/MAM-basics"
 #: The MAM-basics commit the import is pinned to. Move it forward to take MAM's later edits.
+#: Then run the download and ``convert --check``, which reads and converts the new files and
+#: writes nothing.
 COMMIT = "632ff4b65aac33436e8fb96281b798d774c5e092"
 PLUS_PATH = "MAM-parsed/plus"
 LICENSE_PATH = "MAM-parsed/LICENSE.md"

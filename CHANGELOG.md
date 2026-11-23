@@ -26,8 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that rejects an unknown template; the humash reads its aliyot from the same files.
   When GitHub rate-limits it, `download` waits as asked, at most a minute at a time; a
   longer wait fails at once, saying when to try again. `convert` converts every book
-  before it writes any, so that a missing book or a rejected template stops it before
-  anything is written and `--only-book` writes the same file as a full run. From the
+  before it writes any, so that a missing book or a rejected template stops it before anything
+  is written and `--only-book` writes the same file as a full run. `convert --check` reads and
+  converts the whole download without writing anything, for use after moving the pin. From the
   same text the output is unchanged except that every file's source note (`tei:sourceDesc`)
   names MAM-parsed plus instead of the Google Sheet, that the index also names the commit and
   quotes MAM's attributions instead of the sheet's README tab, and that words the wikitext front

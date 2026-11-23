@@ -1,11 +1,8 @@
-import json
 import unittest
-from pathlib import Path
 
 from opensiddur.importer.miqra_al_pi_hamasorah.miqra_plus import (
     PlusFormatError,
     PlusToIntermediate,
-    TEMPLATE_SCHEMAS,
     _escape_outside_tags,
     _wikitext_basic_markup_to_xml,
     _xml_escape,
@@ -298,33 +295,6 @@ class TestClosedDispatch(unittest.TestCase):
             with self.subTest(placed=placed["tmpl_name"]), self.assertRaises(PlusFormatError):
                 convert(t("מ:דחי", p1="א", p2=["א", placed]))
 
-    def test_every_verse_of_the_download_converts(self):
-        """Every plus file, header and book39 has the expected keys, and every template in the
-        verses and good endings of the downloaded MAM-parsed plus files is known and well formed."""
-        plus = Path(__file__).resolve().parents[4] / "sourcetexts" / "sources" / "miqra_al_pi_hamasorah" / "plus"
-        paths = sorted(plus.glob("*.json"))
-        if not paths:
-            self.skipTest("MAM-parsed plus not in workspace")
-        converter = PlusToIntermediate()
-        names = set()
-        good_endings = 0
-        for path in paths:
-            plus_file = json.loads(path.read_text(encoding="utf-8"))
-            check_plus_file(plus_file, path.name)
-            for book39 in plus_file["book39s"]:
-                good_ending = book39["good_ending_plus"]
-                converter.check_good_ending(good_ending, path.name)
-                if good_ending is not None:
-                    good_endings += 1
-                    names.update(_names(good_ending["wikitext_element"]))
-                for verses in book39["chapters"].values():
-                    for columns in verses.values():
-                        for nodes, column in zip(columns, "CDE"):
-                            converter.column(nodes, column)
-                            names.update(_names(nodes))
-        self.assertLessEqual(names, set(TEMPLATE_SCHEMAS))
-        self.assertGreater(good_endings, 0)
-
 
 class TestGoodEnding(unittest.TestCase):
     """good_ending_plus is checked, not rendered: null, or a נוסח documenting a מ:סיום בטוב."""
@@ -383,14 +353,6 @@ class TestPlusFileKeys(unittest.TestCase):
         for case, data in cases.items():
             with self.subTest(case=case), self.assertRaises(PlusFormatError):
                 check_plus_file(data, "C1-Isaiah.json")
-
-
-def _names(value) -> set[str]:
-    if isinstance(value, list):
-        return set().union(*(_names(item) for item in value)) if value else set()
-    if isinstance(value, dict):
-        return {value["tmpl_name"]}.union(*(_names(v) for v in value.get("tmpl_params", {}).values()))
-    return set()
 
 
 if __name__ == "__main__":
