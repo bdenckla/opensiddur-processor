@@ -45,8 +45,8 @@ class Segment:
     start: VerseRef
     end: VerseRef
     opening: list[ReadingSpan] = field(default_factory=list)
-    # Set when this segment repeats text already emitted, because two spans of one
-    # unit-space overlap.
+    # Set when this segment repeats text already emitted: by `segment_by_span` where two spans
+    # of one unit-space overlap, and by `mark_repeats` over a whole festival reading.
     duplicate: bool = False
 
     @property

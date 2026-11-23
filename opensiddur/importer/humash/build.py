@@ -425,13 +425,22 @@ def _reading_runs(
     An aliyah stays in the run before it when it reads again some of the verses the run has
     read — weekday Rosh Hodesh's second aliyah opens at Numbers 28:3, where the first ended, and
     on the intermediate days of Sukkot the fourth aliyah reads two of the aliyot before it
-    again — or when it picks up where the run leaves off. One that skips ahead, steps back to verses the run has not
-    read, or moves to another book opens a new run: the fast days skip from Exodus 32:14 to
-    34:1, and the sixth day of Hanukkah steps back from Numbers 28 to Numbers 7. Segmenting each
-    run by itself keeps the verses between two runs out of the reading.
+    again — or when it picks up where the run leaves off. One that skips ahead, steps back to
+    verses the run has not read, or moves to another book opens a new run: the fast days skip
+    from Exodus 32:14 to 34:1, and the sixth day of Hanukkah steps back from Numbers 28 to
+    Numbers 7. Segmenting each run by itself keeps the verses between two runs out of the
+    reading.
+
+    hebcal states every festival aliyah in whole verses, and `model.segment_by_union` cuts only
+    at whole verses, so an aliyah bounded inside a verse is refused rather than misprinted.
     """
     runs: list[list[ReadingSpan]] = []
     for span in spans:
+        if span.start.half or span.end.half:
+            raise ValueError(
+                f"{span.unit} {span.label}: a festival aliyah bounded inside a verse "
+                f"({span.start}-{span.end}) is not supported"
+            )
         if runs:
             extent = _run_extent(runs[-1])
             if span.book == extent.book and (
@@ -443,6 +452,20 @@ def _reading_runs(
                 continue
         runs.append([span])
     return runs
+
+
+def _segment_run(
+    run: list[ReadingSpan], sourcetexts_root: Path | None,
+) -> list[model.Segment]:
+    """A run's segments, in the order its aliyot are read.
+
+    Cutting at the union puts the text in the order of the book, which is the order it is
+    read only while each aliyah starts at or after the one read before it. Where one starts
+    before it, as Sukkot's fourth aliyah does, each aliyah is emitted by itself instead.
+    """
+    if all(earlier.start <= later.start for earlier, later in zip(run, run[1:])):
+        return model.segment_reading(run, sourcetexts_root=sourcetexts_root)
+    return model.segment_by_span(run)
 
 
 _CONDITION_INDEX = {"value": 0}
@@ -858,20 +881,20 @@ def festival_file(
 ) -> tuple[str, str]:
     """One festival or special-Shabbat reading, with its haftarah.
 
-    The Torah reading is emitted in the order its aliyot are read (readings.festival_readings
-    keeps hebcal's order), a run at a time (`_reading_runs`). A citation listing a book's runs
-    opens them, and a citation of its own opens each later run, as in a discontinuous haftarah
-    (`_passage_xml`).
+    The Torah reading is emitted in the order readings.festival_readings gives the aliyot, by
+    unit and label, which for every reading in hebcal's data is the order they are read. It is
+    emitted a run at a time (`_reading_runs`). A citation listing a book's runs opens them, and
+    a citation of its own opens each later run, as in a discontinuous haftarah (`_passage_xml`).
     """
     urn_base = f"{URN_PREFIX}:reading/{slug}"
     name = reading["name"]
     parts: list[str] = []
 
     runs = _reading_runs(reading["aliyot"], sourcetexts_root)
-    segmented = [model.segment_reading(run, sourcetexts_root=sourcetexts_root) for run in runs]
+    segmented = [_segment_run(run, sourcetexts_root) for run in runs]
     model.mark_repeats([segment for segments in segmented for segment in segments])
-    for _, book_runs in groupby(zip(runs, segmented), key=lambda item: item[0][0].book):
-        book_runs = list(book_runs)
+    for _, group in groupby(zip(runs, segmented), key=lambda item: item[0][0].book):
+        book_runs = list(group)
         extents = [_run_extent(run) for run, _ in book_runs]
         parts.append(_citation_milestone(_citation(extents)))
         for index, ((_, segments), extent) in enumerate(zip(book_runs, extents)):

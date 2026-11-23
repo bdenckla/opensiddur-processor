@@ -6,8 +6,11 @@ be the day's aliyot as they are read: each aliyah's marker, then the instruction
 reads again verses read before it, then its verses, and nothing else. A verse that no aliyah
 reads, an aliyah out of its place and an instruction where nothing is read again all break it.
 
-The check runs over hebcal's readings where the sourcetexts submodule is initialised, and over
-every arrangement of a few synthetic aliyot everywhere, so that it also runs without the data.
+Each citation is checked too: it names the verses printed under it, and the first citation of
+a book's passage names, in order, the stretches that the citations after it open.
+
+The checks run over hebcal's readings where the sourcetexts submodule is initialised, and over
+every arrangement of a few synthetic aliyot everywhere, so that they also run without the data.
 """
 
 import itertools
@@ -22,6 +25,7 @@ from lxml import etree
 from opensiddur.importer.humash import build
 from opensiddur.importer.humash.readings import festival_readings
 from opensiddur.importer.humash.refs import (
+    SLUG_TO_HEBREW_ANY_BOOK,
     UNIT_ALIYAH,
     UNIT_MAFTIR,
     ReadingSpan,
@@ -33,6 +37,11 @@ from opensiddur.importer.util.pages import hebcal_leyning_data_directory
 TEI = "{http://www.tei-c.org/ns/1.0}"
 J = "{http://jewishliturgy.org/ns/jlptei/2}"
 TARGET = re.compile(r"urn:x-opensiddur:text:bible:([a-z_0-9]+)/(\d+)/(\d+)-(\d+)/(\d+)")
+# One clause of a citation: "<book> 28:1–28:15", or "7:42–7:47" after the first clause.
+CLAUSE = re.compile(
+    r"(?:(?P<book>\S+) )?(?P<c1>\d+):(?P<v1>\d+)(?:" "\N{EN DASH}" r"(?P<c2>\d+):(?P<v2>\d+))?"
+)
+BOOK_BY_HEBREW = {hebrew: slug for slug, hebrew in SLUG_TO_HEBREW_ANY_BOOK.items()}
 
 
 def _verses(start: VerseRef, end: VerseRef, root: Path | None) -> list[tuple]:
@@ -49,7 +58,8 @@ def _verses(start: VerseRef, end: VerseRef, root: Path | None) -> list[tuple]:
 
 
 def _read_back(document: str, root: Path | None) -> list[tuple]:
-    """The Torah reading of a festival file, in document order: markers, instructions, verses."""
+    """The Torah reading of a festival file, in document order: citations, markers,
+    instructions and verses."""
     division = etree.fromstring(document.encode("utf-8")).find(f"{TEI}text/{TEI}body/{TEI}div")
     stream: list[tuple] = []
     for element in division:
@@ -58,8 +68,8 @@ def _read_back(document: str, root: Path | None) -> list[tuple]:
         if element.tag == f"{TEI}head":
             continue
         if element.tag == f"{TEI}milestone" and element.get("unit") == "citation":
-            continue
-        if element.tag == f"{TEI}milestone":
+            stream.append(("citation", element.get("n")))
+        elif element.tag == f"{TEI}milestone":
             unit, label = element.get("corresp").rsplit("/", 2)[-2:]
             stream.append(("marker", unit, label))
         elif element.tag == f"{TEI}note" and element.get("type") == "instruction":
@@ -78,6 +88,48 @@ def _read_back(document: str, root: Path | None) -> list[tuple]:
         else:
             raise AssertionError(f"unexpected element in a Torah reading: {element.tag}")
     return stream
+
+
+def _without_citations(stream: list[tuple]) -> list[tuple]:
+    return [event for event in stream if event[0] != "citation"]
+
+
+def _cited_ranges(citation: str) -> list[tuple]:
+    """A citation's clauses as (first verse, last verse), each verse (book, chapter, verse)."""
+    ranges = []
+    book = None
+    for clause in citation.split("; "):
+        match = CLAUSE.fullmatch(clause)
+        if match is None:
+            raise AssertionError(f"not a citation clause: {clause!r} in {citation!r}")
+        if match.group("book") is not None:
+            book = BOOK_BY_HEBREW[match.group("book")]
+        first = (book, int(match.group("c1")), int(match.group("v1")))
+        last = (book, int(match.group("c2") or match.group("c1")),
+                int(match.group("v2") or match.group("v1")))
+        ranges.append((first, last))
+    return ranges
+
+
+def _citations_name_their_verses(test: unittest.TestCase, stream: list[tuple]) -> None:
+    """Each citation spans exactly the verses printed after it, up to the next citation, and
+    the first citation of a book's passage lists, in order, what the citations after it name."""
+    cited: list[tuple[list[tuple], list[tuple]]] = []
+    for event in stream:
+        if event[0] == "citation":
+            cited.append((_cited_ranges(event[1]), []))
+        elif event[0] == "verse":
+            test.assertTrue(cited, "verses printed before any citation")
+            cited[-1][1].append(event[1:])
+    listed: list[tuple] = []
+    for ranges, verses in cited:
+        if listed:
+            test.assertEqual(ranges, [listed.pop(0)])
+        else:
+            listed = ranges[1:]
+        test.assertTrue(verses, f"no verse printed under {ranges}")
+        test.assertEqual((min(verses), max(verses)), ranges[0])
+    test.assertEqual(listed, [], "an opening citation lists more than is printed")
 
 
 def _alternatives(first: ReadingSpan, second: ReadingSpan) -> bool:
@@ -129,7 +181,9 @@ class TestHebcalReadings(unittest.TestCase):
                 keys = list(hebcal[reading["name"]].get("fullkriyah") or {})
                 self.assertEqual([span.label for span in spans], [_hebcal_label(k) for k in keys])
                 _, document = build.festival_file(slug, reading)
-                self.assertEqual(_read_back(document, None), _as_read(spans, None))
+                stream = _read_back(document, None)
+                self.assertEqual(_without_citations(stream), _as_read(spans, None))
+                _citations_name_their_verses(self, stream)
 
 
 # Aliyot that between them continue, overlap, skip ahead, step back and change book.
@@ -158,7 +212,8 @@ def _span(unit: str, label: str, verses: tuple) -> ReadingSpan:
 
 
 class TestEveryArrangement(unittest.TestCase):
-    """Every arrangement of up to three of the synthetic aliyot, alone and before the maftirs."""
+    """Every arrangement of up to three of the synthetic aliyot; of up to two before the
+    maftirs that depend on the day; and of one aliyah and a maftir after it."""
 
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -174,9 +229,11 @@ class TestEveryArrangement(unittest.TestCase):
 
     def _check(self, spans: list[ReadingSpan]) -> None:
         reading = {"name": "Rosh Chodesh", "aliyot": spans, "haftarot": []}
-        _, document = build.festival_file("rosh_chodesh", reading, self.root)
         with self.subTest(aliyot="; ".join(f"{s.label}={s.start}-{s.end}" for s in spans)):
-            self.assertEqual(_read_back(document, self.root), _as_read(spans, self.root))
+            _, document = build.festival_file("rosh_chodesh", reading, self.root)
+            stream = _read_back(document, self.root)
+            self.assertEqual(_without_citations(stream), _as_read(spans, self.root))
+            _citations_name_their_verses(self, stream)
 
     def test_aliyot_in_every_order_read_as_they_are_listed(self):
         for length in (1, 2, 3):
@@ -197,6 +254,16 @@ class TestEveryArrangement(unittest.TestCase):
                     _span(UNIT_ALIYAH, str(number), verses)
                     for number, verses in enumerate(chosen, start=1)
                 ] + maftirs)
+
+    def test_a_maftir_is_read_after_the_aliyah_before_it(self):
+        for aliyah_verses, maftir_verses in itertools.product(RANGES, repeat=2):
+            aliyah = _span(UNIT_ALIYAH, "1", aliyah_verses)
+            maftir = _span(UNIT_MAFTIR, "maftir", maftir_verses)
+            if aliyah.book == maftir.book and aliyah.start <= maftir.start <= aliyah.end:
+                # A maftir that starts inside the aliyah shares its text, which is printed once
+                # with the maftir's marker inside it, as in a parashah; `_as_read` reads it twice.
+                continue
+            self._check([aliyah, maftir])
 
 
 if __name__ == "__main__":
