@@ -24,6 +24,7 @@ from opensiddur.importer.miqra_al_pi_hamasorah.canonical_verses import annotate_
 from opensiddur.importer.miqra_al_pi_hamasorah.download import (
     LICENSE_NAME,
     MANIFEST_NAME,
+    _FULL_SHA,
     content_sha256,
 )
 from opensiddur.importer.miqra_al_pi_hamasorah.miqra_plus import (
@@ -31,6 +32,8 @@ from opensiddur.importer.miqra_al_pi_hamasorah.miqra_plus import (
     MW_NS,
     PlusFormatError,
     PlusToIntermediate,
+    _NUMBER,
+    _xml_escape,
     check_plus_file,
 )
 
@@ -257,16 +260,6 @@ def validate_and_write_tei_file(
     return out_path
 
 
-def _xml_escape(text: str) -> str:
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&apos;")
-    )
-
-
 # A book that is a sub-book of one of the 24 books is named by its abbreviation or by its own
 # name (sub_book_name: "שמ\"א", "הושע", "נחמיה"); any other by its 24-book name without its
 # "ספר " or "מגילת " (book24_name: "ספר בראשית", "מגילת רות").
@@ -279,9 +272,6 @@ _SUB_BOOK_NAMES = {
     'דה"א': "דברי הימים א",
     'דה"ב': "דברי הימים ב",
 }
-
-_NUMBER_KEY = re.compile(r"[1-9][0-9]*")
-_COMMIT = re.compile(r"[0-9a-f]{40}")
 
 
 def _book_name_he(book39: dict[str, Any]) -> str:
@@ -393,7 +383,7 @@ def load_source(sourcetexts_root: Path | None) -> MamSource:
         raise FileNotFoundError(f"Missing {manifest_path} (run download first)")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     commit = manifest.get("commit", "")
-    if not _COMMIT.fullmatch(commit):
+    if not _FULL_SHA.fullmatch(commit):
         raise PlusFormatError(f"{manifest_path}: no full commit SHA: {commit!r}")
     contents = _listed_contents(data_dir, manifest, manifest_path)
     plus_dir = miqra_al_pi_hamasorah_plus_directory(sourcetexts_root)
@@ -429,7 +419,7 @@ def _numbered(mapping: Any, what: str) -> Iterator[tuple[str, Any]]:
     if not isinstance(mapping, dict):
         raise PlusFormatError(f"{what}: not an object: {mapping!r}")
     for expected, (key, value) in enumerate(mapping.items(), start=1):
-        if not _NUMBER_KEY.fullmatch(key) or int(key) != expected:
+        if not _NUMBER.fullmatch(key) or int(key) != expected:
             raise PlusFormatError(f"{what}: key {key!r} where {expected} was expected")
         yield key, value
 
