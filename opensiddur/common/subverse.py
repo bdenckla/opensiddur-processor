@@ -185,6 +185,7 @@ _ATTRIBUTE = re.compile(r"""([\w:.-]+)\s*=\s*("([^"]*)"|'([^']*)')""")
 _CHOICE_TAG = "tei:choice"
 _READ_TAG = "j:read"
 _OPTION_TAG = "j:option"
+_LINE_BREAK_TAG = "tei:lb"
 _VERSE_MILESTONE_UNITS = _VERSE_TERMINATING_UNITS
 
 
@@ -199,7 +200,7 @@ class _Run:
 
     source: int      # offset of this run in the source text
     offset: int      # offset of this run within the verse's assembled text
-    text: str
+    text: str        # the character data, and a space if a line break follows it
     # Where a boundary at this run's very start must go instead, when the run sits inside an
     # element that may not be split: the offset of that element's start tag. None otherwise.
     before: int | None = None
@@ -328,9 +329,13 @@ def _verses(xml: str) -> list[_VerseText]:
     for match in _MARKUP.finditer(xml):
         data_start, data_end = position, match.start()
         position = match.end()
+        # A line break ends a word as a space does, though nothing is written where it falls:
+        # Miqra al pi ha-Masorah writes no space beside most of the line breaks of its poetic
+        # layout. So a line break is read as a space at the end of the data before it.
+        line_break = match.group("name") == _LINE_BREAK_TAG and not match.group("close")
 
-        if urn and data_end > data_start:
-            text = xml[data_start:data_end]
+        if urn and (data_end > data_start or line_break):
+            text = xml[data_start:data_end] + (" " if line_break else "")
             keep = True
             before = None
             splittable = True

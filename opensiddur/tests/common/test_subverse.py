@@ -157,6 +157,27 @@ class TestHalfVerses(SubverseTestCase):
         self.assertEqual(self.scope(xml, f"{URN}exodus/34/7/a"), "נֹצֵר חֶסֶד וְחַטָּאָ֑ה")
         self.assertTextUnchanged(xml, before)
 
+    def test_a_line_break_between_words_separates_them(self):
+        """A line break ends a word as a space does, though nothing is written there.
+
+        Miqra al pi ha-Masorah writes no space beside most of the line breaks of its poetic
+        layout. Read as no space at all, the break here would join the last word of the first
+        half to the first word of the second, and the second half would open a word late.
+        """
+        xml = document(
+            f"<tei:p>{verse(f'{URN}psalms/2/1', '1')}"
+            "לָ֭מָּה רָגְשׁ֣וּ גוֹיִ֑ם"
+            '<tei:lb type="indent"/>'
+            "וּ֝לְאֻמִּ֗ים יֶהְגּוּ־רִֽיק׃</tei:p>"
+        )
+        before = self.text_of(xml)
+
+        xml = self.half_verses(xml)
+
+        self.assertEqual(self.scope(xml, f"{URN}psalms/2/1/a"), "לָ֭מָּה רָגְשׁ֣וּ גוֹיִ֑ם")
+        self.assertEqual(self.scope(xml, f"{URN}psalms/2/1/b"), "וּ֝לְאֻמִּ֗ים יֶהְגּוּ־רִֽיק׃")
+        self.assertTextUnchanged(xml, before)
+
     def test_a_ketiv_is_not_read_as_a_word_of_its_own(self):
         """Descending into both readings would put the unpointed ketiv into the text.
 
