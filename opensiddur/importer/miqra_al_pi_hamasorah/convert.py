@@ -284,7 +284,7 @@ def _book_name_he(book39: dict[str, Any]) -> str:
 
 @dataclass(frozen=True)
 class Attribution:
-    """An attribution MAM's licence asks for: its statement, then the page to link to."""
+    """A statement of MAM's licence, an attribution or a credit, then the page it links to."""
 
     statement: str
     link_text: str
@@ -323,6 +323,41 @@ def read_attributions(licence: str) -> dict[str, Attribution]:
     return attributions
 
 
+# The paragraph of LICENSE.md, in each language, that credits MAM's editors, and the link to
+# the licence that follows it.
+_CREDITS = {
+    "en": re.compile(
+        r'^(?P<statement>"Miqra according to the Masorah" [^\[]*?)'
+        r"\s*\[(?P<text>[^\]\r\n]+)\]\((?P<url>[^)\s]+)\)",
+        re.MULTILINE,
+    ),
+    "he": re.compile(
+        r'^(?P<statement>"מקרא על פי המסורה" [^\[]*?)'
+        r"\s*\[(?P<text>[^\]\r\n]+)\]\((?P<url>[^)\s]+)\)",
+        re.MULTILINE,
+    ),
+}
+
+
+def read_credits(licence: str) -> dict[str, Attribution]:
+    """The English and Hebrew paragraphs of MAM-parsed's LICENSE.md that credit MAM's editors.
+
+    Each is the paragraph as MAM wrote it, its line breaks made spaces, with the link to the
+    licence that it ends by pointing to. As with the attributions, every occurrence must be
+    the same.
+    """
+    credits: dict[str, Attribution] = {}
+    for lang, pattern in _CREDITS.items():
+        found = {
+            Attribution(" ".join(m.group("statement").split()), m.group("text"), m.group("url"))
+            for m in pattern.finditer(licence)
+        }
+        if len(found) != 1:
+            raise PlusFormatError(f"LICENSE.md: expected one {lang} credit, found {found}")
+        credits[lang] = found.pop()
+    return credits
+
+
 @dataclass
 class MamSource:
     """The downloaded MAM-parsed plus files and what the manifest says of them."""
@@ -331,6 +366,7 @@ class MamSource:
     commit: str
     plus_path: str
     attributions: dict[str, Attribution]
+    credits: dict[str, Attribution]
     book39s: dict[str, dict[str, Any]]
 
     @property
@@ -393,6 +429,7 @@ def load_source(sourcetexts_root: Path | None) -> MamSource:
     if LICENSE_NAME not in contents:
         raise PlusFormatError(f"{manifest_path} does not list {LICENSE_NAME}")
     attributions = read_attributions(contents[LICENSE_NAME])
+    credits = read_credits(contents[LICENSE_NAME])
 
     known = {book.book_name_he for book in _flatten_books(TANAKH_INDEX)}
     book39s: dict[str, dict[str, Any]] = {}
@@ -409,6 +446,7 @@ def load_source(sourcetexts_root: Path | None) -> MamSource:
         commit=commit,
         plus_path=manifest["plus_path"],
         attributions=attributions,
+        credits=credits,
         book39s=book39s,
     )
 
@@ -506,19 +544,20 @@ def book_file(
 
 
 def front_matter(source: MamSource) -> str:
-    """The index's front matter: where the text was taken from, and MAM's attributions."""
+    """The index's front matter: where the text was taken from, and, in each language, MAM's
+    credit to its editors and the attribution it asks for."""
     paragraphs = [
         f'<tei:p xml:lang="en">Taken from {_xml_escape(source.plus_path)} in '
         f"{_xml_escape(source.repository_url)} at commit {source.commit}, which is derived "
         "from Hebrew Wikisource. Available under the CC BY-SA 4.0 licence.</tei:p>"
     ]
     for lang in ("en", "he"):
-        attribution = source.attributions[lang]
-        paragraphs.append(
-            f'<tei:p xml:lang="{lang}">{_xml_escape(attribution.statement)} '
-            f'<tei:ref target="{_xml_escape(attribution.url)}">'
-            f"{_xml_escape(attribution.link_text)}</tei:ref></tei:p>"
-        )
+        for statement in (source.credits[lang], source.attributions[lang]):
+            paragraphs.append(
+                f'<tei:p xml:lang="{lang}">{_xml_escape(statement.statement)} '
+                f'<tei:ref target="{_xml_escape(statement.url)}">'
+                f"{_xml_escape(statement.link_text)}</tei:ref></tei:p>"
+            )
     paras = "\n".join(paragraphs)
     return f"<tei:front xmlns:tei=\"http://www.tei-c.org/ns/1.0\">{paras}</tei:front>"
 

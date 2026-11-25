@@ -16,6 +16,15 @@ from opensiddur.importer.miqra_al_pi_hamasorah.convert import (
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 
 LICENSE = """----
+License:
+
+"Miqra according to the Masorah" as found in this spreadsheet was prepared by Seth (Avi) Kadish
+from materials that he originally developed at Hebrew Wikisource,
+with major technical assistance from Erel Segal-Halevi and Benjamin Denckla.
+All of the material is available under the CC-BY-SA 4.0 license, which is found at the following link:
+
+[CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)
+
 Attribution:
 
 Attribution in English and all languages other than Hebrew shall be to "Hebrew Wikisource" (or an equivalent translation) with a direct link to the following page:
@@ -23,6 +32,12 @@ Attribution in English and all languages other than Hebrew shall be to "Hebrew W
 [Miqra according to the Masorah](https://en.wikisource.org/wiki/User:Dovi/Miqra_according_to_the_Masorah#beginning)
 
 ----
+רשיון:
+
+"מקרא על פי המסורה" שבגליון הנתונים הזה הוכן ע"י אבי קדיש, על בסיס חומר קיים מהפרויקט שכבר הכין באתר ויקיטקסט, ובעזרת תמיכה טכנית מכרעת מאת אראל סגל-הלוי ובנימין דנקלה. כל החומר מוגש תחת הרשיון Creative Commons ייחוס-שיתוף זהה 4.0, שנמצא בקישור הבא:
+
+[ייחוס-שיתוף זהה 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.he)
+
 ייחוס:
 
 הייחוס בעברית יהיה ל"ויקיטקסט" ביחד עם קישור ישיר לדף שבקישור הבא:

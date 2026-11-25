@@ -4,7 +4,7 @@ Imports [*Miqra according to the Masorah*](https://he.wikisource.org/wiki/%D7%9E
 
 ## License
 
-MAM was prepared by Seth (Avi) Kadish from materials that he originally developed at Hebrew Wikisource, and is available under **CC BY-SA 4.0**. The attribution it asks for differs between Hebrew and other languages; see the downloaded `LICENSE.md`, MAM-parsed's own, for its wording. The project's `index.xml` quotes both attributions and names the commit its text was taken from.
+MAM was prepared by Seth (Avi) Kadish from materials that he originally developed at Hebrew Wikisource, and is available under **CC BY-SA 4.0**. The attribution it asks for differs between Hebrew and other languages; see the downloaded `LICENSE.md`, MAM-parsed's own, for its wording. The project's `index.xml` quotes, in English and in Hebrew, the licence's credit to MAM's editors and the attribution it asks for, and names the commit its text was taken from.
 
 ## Download
 

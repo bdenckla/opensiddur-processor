@@ -10,6 +10,7 @@ from opensiddur.importer.miqra_al_pi_hamasorah.convert import (
     load_source,
     main,
     read_attributions,
+    read_credits,
 )
 from opensiddur.importer.miqra_al_pi_hamasorah.miqra_plus import PlusFormatError
 from opensiddur.tests.importer.miqra_al_pi_hamasorah.support import (
@@ -217,6 +218,31 @@ class TestFrontMatter(unittest.TestCase):
         self.assertIn("הייחוס בעברית", front)
         self.assertIn(f"at commit {COMMIT}", source.note(with_commit=True))
         self.assertNotIn(COMMIT, source.note())
+
+    def test_the_index_quotes_the_credit_to_mams_editors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sourcetexts_root = Path(tmp)
+            write_source(sourcetexts_root, {})
+            source = load_source(sourcetexts_root)
+        front = front_matter(source)
+        self.assertIn(
+            '<tei:p xml:lang="en">&quot;Miqra according to the Masorah&quot; as found in this '
+            "spreadsheet was prepared by Seth (Avi) Kadish from materials that he originally "
+            "developed at Hebrew Wikisource, with major technical assistance from Erel "
+            "Segal-Halevi and Benjamin Denckla. All of the material is available under the "
+            "CC-BY-SA 4.0 license, which is found at the following link: "
+            '<tei:ref target="https://creativecommons.org/licenses/by-sa/4.0/">CC-BY-SA 4.0'
+            "</tei:ref></tei:p>",
+            front,
+        )
+        self.assertIn("ובעזרת תמיכה טכנית מכרעת מאת אראל סגל-הלוי ובנימין דנקלה", front)
+        # Each language's credit comes before its attribution.
+        self.assertLess(front.index("Seth (Avi) Kadish"), front.index("Attribution in English"))
+        self.assertLess(front.index("אבי קדיש"), front.index("הייחוס בעברית"))
+
+    def test_a_licence_without_the_credits_is_refused(self):
+        with self.assertRaises(ValueError):
+            read_credits("Attribution: Hebrew Wikisource\n")
 
     def test_a_licence_without_the_attributions_is_refused(self):
         with self.assertRaises(ValueError):

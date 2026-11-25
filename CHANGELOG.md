@@ -31,7 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   converts the whole download without writing anything, for use after moving the pin. From the
   same text the output is unchanged except that every file's source note (`tei:sourceDesc`)
   names MAM-parsed plus instead of the Google Sheet, that the index also names the commit and
-  quotes MAM's attributions instead of the sheet's README tab, and that words the wikitext front
+  quotes MAM's credit to its editors and its attributions instead of the sheet's README tab,
+  and that words the wikitext front
   end garbled are as MAM has them: the speaker headings of Job and the title of Proverbs 10:1,
   the spaces documented in Deuteronomy 23:8, Ezra 2:69 and Nehemiah 3:2, 3:10 and 7:68, the
   accents of the ten words with geresh or gershayim and telisha gedola, the inverted nuns of
@@ -39,7 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   words in documented passages, which had become Wikisource links, are words again, and the
   other 11 ketiv-only and qere-only forms have MAM's one pair of parentheses or brackets
   instead of three. Deuteronomy 11:21's scroll-difference note is now marked before the sof
-  pasuq. `openpyxl` is no longer a dependency. The sourcetexts commit that adds the download
+  pasuq. With its title restored, Proverbs 10:1 carries the ole-we-yored of שְׁלֹ֫מֹ֥ה, so like
+  the WLC's it is no longer divided into half-verses (`proverbs/10/1/a` and `/b`): in the poetic
+  books a verse with ole-we-yored is not divided at the etnachta. `openpyxl` is no longer a
+  dependency. The sourcetexts commit that adds the download
   needs the `.gitattributes` line `sources/miqra_al_pi_hamasorah/** -text`, since `download`
   and `convert` compare the files byte for byte.
 
