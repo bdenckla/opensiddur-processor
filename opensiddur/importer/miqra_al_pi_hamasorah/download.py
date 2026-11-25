@@ -177,6 +177,7 @@ def download_miqra(
         manifest_path.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
+            newline="\n",
         )
         logger.info("Wrote manifest to %s", manifest_path)
     finally:
