@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does. The tests no longer assume POSIX paths, a UTF-8 locale, or that Saxon can open a
   temporary file that is still open. On Windows the suite now fails only the tests that need
   jing and the compiled schema.
+- The last verse of a book no longer runs on into the notes after the text. The pass that
+  places the `half-verse` milestones ended a verse only at the next verse or chapter
+  milestone, so a book's last verse ran on past the end of `tei:text` into the notes of its
+  `tei:standOff`. In Miqra al pi ha-Masorah, Lamentations 5:22, Ruth 4:22 and Song of Songs
+  8:14, which have no etnachta, were divided at an etnachta in a note, so that their second
+  half began inside the note; they are no longer divided. Proverbs 31:31 was not divided,
+  because the pass leaves undivided a verse of Psalms, Proverbs or Job that has an ole, and
+  a note has one; it is now divided at its etnachta. The WLC's books are unchanged.
 
 ### Added
 - **A scan viewer in the electronic book.** With `electronic.scan_viewer`

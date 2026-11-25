@@ -302,8 +302,9 @@ def _verses(xml: str) -> list[_VerseText]:
     """Every verse in the document, with the text that belongs to it.
 
     A verse runs from its milestone to the next milestone that closes it — the next verse, or
-    the next chapter. Only the milestones inside `tei:text` count: a header may quote a verse,
-    and quoting one is not carrying it.
+    the next chapter — or to the end of `tei:text`, so that the last verse does not take in
+    what follows the text, such as the notes of a `tei:standOff`. Only the milestones inside
+    `tei:text` count: a header may quote a verse, and quoting one is not carrying it.
     """
     verses: list[_VerseText] = []
     current: _VerseText | None = None
@@ -359,6 +360,9 @@ def _verses(xml: str) -> list[_VerseText]:
                     variant = True
         elif match.group("close") and name == _CHOICE_TAG:
             choice = None
+        elif match.group("close") and name == "tei:text":
+            close()
+            urn, in_text = "", False
 
         if choice is not None and position >= skip_until:
             choice = None

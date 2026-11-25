@@ -271,6 +271,69 @@ class TestHalfVerses(SubverseTestCase):
         xml = self.half_verses(xml)
         self.assertEqual(self.milestones(xml, "half-verse"), [])
 
+    def test_milestones_after_tei_text_are_ignored(self):
+        """A note after the text may quote a verse, as a header may; it does not carry it."""
+        xml = (
+            f'<tei:TEI xmlns:tei="{TEI}" xml:lang="he">'
+            "<tei:text><tei:body><tei:p/></tei:body></tei:text>"
+            '<tei:standOff type="notes"><tei:note>'
+            f'<tei:milestone unit="verse" n="1" corresp="{URN}genesis/1/1"/>'
+            "בְּרֵאשִׁ֑ית בָּרָא"
+            "</tei:note></tei:standOff></tei:TEI>"
+        )
+        xml = self.half_verses(xml)
+        self.assertEqual(self.milestones(xml, "half-verse"), [])
+
+    def test_the_end_of_the_text_ends_the_last_verse(self):
+        """The notes of a tei:standOff after the text are not part of its last verse.
+
+        Lamentations 5:22 has no etnachta, but a note after the text has one. Read as part of
+        the verse, the note divided it, and the second half began inside the note.
+        """
+        xml = (
+            f'<tei:TEI xmlns:tei="{TEI}" xml:lang="he"><tei:text><tei:body>'
+            f"<tei:p>{verse(f'{URN}lamentations/5/22', '22')}"
+            "כִּ֚י אִם־מָאֹ֣ס מְאַסְתָּ֔נוּ קָצַ֥פְתָּ עָלֵ֖ינוּ עַד־מְאֹֽד׃"
+            "</tei:p></tei:body></tei:text>"
+            '<tei:standOff type="notes"><tei:note>'
+            '=ש1,ק-מ ומסורת-ל וטברנית<tei:hi rend="sup">*</tei:hi>ל!=מוֹעֲד֑וֹ (כתיב מלא וי"ו)'
+            "</tei:note></tei:standOff></tei:TEI>"
+        )
+        before = self.text_of(xml)
+
+        xml = self.half_verses(xml)
+
+        self.assertEqual(self.milestones(xml, "half-verse"), [])
+        self.assertTextUnchanged(xml, before)
+
+    def test_a_note_after_the_text_does_not_keep_the_last_verse_whole(self):
+        """An ole in a note does not stop the last verse of Proverbs from being divided.
+
+        Proverbs 31:31 has an etnachta and no ole, but a note after the text has an ole. Read
+        as part of the verse, the note kept the verse whole, as an ole of its own would.
+        """
+        xml = (
+            f'<tei:TEI xmlns:tei="{TEI}" xml:lang="he"><tei:text><tei:body>'
+            f"<tei:p>{verse(f'{URN}proverbs/31/31', '31')}"
+            "תְּנוּ־לָ֭הּ מִפְּרִ֣י יָדֶ֑יהָ וִיהַלְﬞל֖וּהָ בַשְּׁעָרִ֣ים מַעֲשֶֽׂיהָ׃"
+            "</tei:p></tei:body></tei:text>"
+            '<tei:standOff type="notes"><tei:note>'
+            '=א (במקף)<tei:hi rend="sup">*</tei:hi>דפוסים=כֶּ֫ן ה֥וּא'
+            "</tei:note></tei:standOff></tei:TEI>"
+        )
+        before = self.text_of(xml)
+
+        xml = self.half_verses(xml)
+
+        self.assertEqual(
+            self.milestones(xml, "half-verse"),
+            [("a", f"{URN}proverbs/31/31/a"), ("b", f"{URN}proverbs/31/31/b")],
+        )
+        self.assertEqual(
+            self.scope(xml, f"{URN}proverbs/31/31/a"), "תְּנוּ־לָ֭הּ מִפְּרִ֣י יָדֶ֑יהָ"
+        )
+        self.assertTextUnchanged(xml, before)
+
 
 class TestSourceIsPreserved(SubverseTestCase):
     """The pass splices into the source; it must not rewrite anything it did not add.
