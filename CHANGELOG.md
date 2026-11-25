@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Faults that Windows exposes. Python on Windows has no time-zone database of its own, and
+  `hdate` needs one when it is imported, so `tzdata` is now a dependency there; without it the
+  exporter could not start. The validator lets jing open its temporary files. Every text file
+  the package opens is now read and written as UTF-8 rather than in the locale's encoding,
+  which on Windows read the Hebrew in settings files and the Asher importer's sources as
+  mojibake and made the validator reject valid Hebrew files; a test keeps any new call from
+  leaving the encoding out. The page-break aligner for the 1822 Haggadah facsimile reads
+  pdftotext's output as UTF-8. `write_if_changed`, the Wikisource downloaders and the download
+  manifests write LF line endings, and `write_if_changed` compares bytes, so the Sefaria
+  download no longer fetches unchanged files again, even ones a Windows checkout gave CRLF
+  endings. The feature validator reports paths with forward slashes, as the naming check
+  does. The tests no longer assume POSIX paths, a UTF-8 locale, or that Saxon can open a
+  temporary file that is still open. On Windows the suite now fails only the tests that need
+  jing and the compiled schema.
+
 ### Added
 - **A scan viewer in the electronic book.** With `electronic.scan_viewer`
   (`full` | `vertical` | `horizontal`), a link to the scan of a page opens the scan inside the
