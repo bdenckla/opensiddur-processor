@@ -40,7 +40,7 @@ def validate(xml: Path | str,
             xml_str = xml
             xml_doc = etree.fromstring(xml)
         else:
-            with open(xml, "r") as f:
+            with open(xml, "r", encoding="utf-8") as f:
                 xml_str = f.read()
             xml_doc = etree.parse(str(xml))
         
@@ -180,7 +180,7 @@ def _rng_with_start(start_element: str) -> str:
     # make sure the new start exists. It may be named s/:/_/
 
     start_element_ref = start_element.replace(":", "_")
-    with open(SCHEMA_RNG_PATH, "r") as f:
+    with open(SCHEMA_RNG_PATH, "r", encoding="utf-8") as f:
         schema = f.read()
         # Replace the start element in the RelaxNG schema with the given start_element
         # This assumes the schema uses <start>...</start> as the entry point
