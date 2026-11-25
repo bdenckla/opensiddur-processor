@@ -34,11 +34,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the time left, at most every 15 seconds. A slow step in the projects check no longer looks
   the same as a hung one.
 
+### Changed
+- **Miqra al pi ha-Masorah comes from MAM-parsed plus**, the JSON files of MAM-basics
+  (`MAM-parsed/plus/*.json`, pinned to a commit), instead of the TSV export of MAM's frozen
+  Google Sheet. `download` fetches them and MAM's `LICENSE.md` and records the commit in its
+  manifest; `convert` (formerly `convert_tsv`) walks the parsed templates with a closed dispatch
+  that rejects an unknown template; the humash reads its aliyot from the same files.
+  When GitHub rate-limits it, `download` waits as asked, at most a minute at a time; a
+  longer wait fails at once, saying when to try again. `convert` converts every book
+  before it writes any, so that a missing book or a rejected template stops it before anything
+  is written and `--only-book` writes the same file as a full run. `convert --check` reads and
+  converts the whole download without writing anything, for use after moving the pin. From the
+  same text the output is unchanged except that every file's source note (`tei:sourceDesc`)
+  names MAM-parsed plus instead of the Google Sheet, that the index also names the commit and
+  quotes MAM's credit to its editors and its attributions instead of the sheet's README tab,
+  and that words the wikitext front
+  end garbled are as MAM has them: the speaker headings of Job and the title of Proverbs 10:1,
+  the spaces documented in Deuteronomy 23:8, Ezra 2:69 and Nehemiah 3:2, 3:10 and 7:68, the
+  accents of the ten words with geresh or gershayim and telisha gedola, the inverted nuns of
+  Psalms 107, כׇּ֥ל in Psalms 35:10 and Proverbs 19:7, and the sheva of ירושלמה. Six qere-only
+  words in documented passages, which had become Wikisource links, are words again, and the
+  other 11 ketiv-only and qere-only forms have MAM's one pair of parentheses or brackets
+  instead of three. Deuteronomy 11:21's scroll-difference note is now marked before the sof
+  pasuq. With its title restored, Proverbs 10:1 carries the ole-we-yored of שְׁלֹ֫מֹ֥ה, so like
+  the WLC's it is no longer divided into half-verses (`proverbs/10/1/a` and `/b`): in the poetic
+  books a verse with ole-we-yored is not divided at the etnachta. `openpyxl` is no longer a
+  dependency. The sourcetexts commit that adds the download
+  needs the `.gitattributes` line `sources/miqra_al_pi_hamasorah/** -text`, since `download`
+  and `convert` compare the files byte for byte.
+
 ### Fixed
 - Scan links no longer link pages of another printing among the pages of the one the book
   uses. In a Minchah Amidah, a blessing printed at Minchah with no page break inside it had
   been given the Shacharit page's link. Where the edition prints the unit around a text, only
   that printing's breaks are linked.
+- The humash's festival Torah readings print only the verses read, in the order they are read.
+  A day that reads two passages of one book printed everything between them as well: over 600
+  verses of Numbers on the sixth day of Hanukkah, on the seventh when it is Rosh Hodesh, on
+  Shabbat Rosh Hodesh during Hanukkah and on the fourth day of Hol HaMoed Pesah, and 44 of
+  Exodus on fast days. Hanukkah's Numbers 7 came before the Rosh Hodesh aliyot read first, and
+  on the intermediate days of Sukkot the fourth aliyah came second (third on Hoshana Raba), with
+  the instruction to repeat the verse also before the aliyah after it, which repeats nothing.
+  The opening citation lists the passages, and each later passage opens with its own. The five
+  maftirs of Shabbat Hol HaMoed Sukkot, of which a congregation reads the one for the day that
+  Shabbat falls on, are no longer marked as repeating one another.
 
 ### Added
 - **Links to the scans** (#303). `typography.markers.scan_links` sets a symbol (`↗` by default)
