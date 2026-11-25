@@ -325,7 +325,7 @@ class TestValidator(unittest.TestCase):
                 found = validate(Path(directory))
         self.assertEqual(1, found)
         printed.assert_called_once_with(
-            f"{Path('proj/text.xml')}:3: opensiddur:holiday/pesah: @value 9 is above 8")
+            "proj/text.xml:3: opensiddur:holiday/pesah: @value 9 is above 8")
 
     def test_reports_a_file_it_cannot_read_and_a_project_that_is_not_there(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -336,7 +336,7 @@ class TestValidator(unittest.TestCase):
                 found = validate(Path(directory), ["proj", "nope"])
         self.assertEqual(2, found)
         lines = [call.args[0] for call in printed.call_args_list]
-        self.assertTrue(lines[0].startswith(f"{Path('proj/broken.xml')}:1: not well-formed XML"))
+        self.assertTrue(lines[0].startswith("proj/broken.xml:1: not well-formed XML"))
         self.assertTrue(lines[1].endswith("nope: no such project directory"))
 
 
