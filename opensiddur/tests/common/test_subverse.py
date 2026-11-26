@@ -334,6 +334,16 @@ class TestHalfVerses(SubverseTestCase):
         )
         self.assertTextUnchanged(xml, before)
 
+    def test_a_document_that_ends_inside_tei_text_is_refused(self):
+        """A document cut off inside tei:text is refused rather than read to its end."""
+        xml = (
+            f'<tei:TEI xmlns:tei="{TEI}" xml:lang="he"><tei:text><tei:body>'
+            f"<tei:p>{verse(f'{URN}genesis/1/1')}"
+            "בְּרֵאשִׁ֑ית בָּרָא"
+        )
+        with self.assertRaisesRegex(ValueError, "ends inside tei:text"):
+            insert_half_verses(xml)
+
 
 class TestSourceIsPreserved(SubverseTestCase):
     """The pass splices into the source; it must not rewrite anything it did not add.
@@ -427,6 +437,31 @@ class TestVerseParts(SubverseTestCase):
         self.assertEqual(len(unplaceable), 1)
         self.assertEqual(unplaceable[0].urn, f"{URN}genesis/1/31/yom_hashishi")
         self.assertEqual(self.milestones(xml, "verse-part"), [])
+
+    def test_an_incipit_only_in_a_note_after_the_text_is_reported(self):
+        """A note after the text is not part of the last verse, so no part is placed in it.
+
+        Lamentations 5:22 does not have the words כתיב מלא, but its note after the text does.
+        Read as part of the verse, the note took the part, and its milestone went inside the
+        note.
+        """
+        parts = {("lamentations", 5, 22): (("ketiv_male", {"he": "כתיב מלא"}),)}
+        xml = (
+            f'<tei:TEI xmlns:tei="{TEI}" xml:lang="he"><tei:text><tei:body>'
+            f"<tei:p>{verse(f'{URN}lamentations/5/22', '22')}"
+            "כִּ֚י אִם־מָאֹ֣ס מְאַסְתָּ֔נוּ קָצַ֥פְתָּ עָלֵ֖ינוּ עַד־מְאֹֽד׃"
+            "</tei:p></tei:body></tei:text>"
+            '<tei:standOff type="notes"><tei:note>'
+            '=ש1,ק-מ ומסורת-ל וטברנית<tei:hi rend="sup">*</tei:hi>ל!=מוֹעֲד֑וֹ (כתיב מלא וי"ו)'
+            "</tei:note></tei:standOff></tei:TEI>"
+        )
+
+        with patch.dict(VERSE_PARTS, parts, clear=True):
+            result, unplaceable = insert_verse_parts(xml, language="he")
+
+        self.assertEqual(len(unplaceable), 1)
+        self.assertEqual(unplaceable[0].urn, f"{URN}lamentations/5/22/ketiv_male")
+        self.assertEqual(self.milestones(result, "verse-part"), [])
 
     def test_an_incipit_beginning_inside_a_maqqef_group_is_reported(self):
         """The words a maqqef joins are read as one; nothing may be put between them.

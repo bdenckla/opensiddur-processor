@@ -131,6 +131,8 @@ def add_subverse_milestones(xml: str, *, language: str, project: str = "") -> st
             the failure this whole mechanism exists to prevent. The halves are not checked
             this way: no one declares them individually, and a verse the accents do not
             divide simply has no halves.
+        ValueError: if the document ends inside `tei:text`, so that its last verse has no
+            end.
     """
     xml, _ = insert_half_verses(xml, project=project)
     xml, unplaceable = insert_verse_parts(xml, language=language, project=project)
@@ -305,6 +307,10 @@ def _verses(xml: str) -> list[_VerseText]:
     the next chapter — or to the end of `tei:text`, so that the last verse does not take in
     what follows the text, such as the notes of a `tei:standOff`. Only the milestones inside
     `tei:text` count: a header may quote a verse, and quoting one is not carrying it.
+
+    Raises:
+        ValueError: if the document ends inside `tei:text`, so that the verse still open
+            there has no end.
     """
     verses: list[_VerseText] = []
     current: _VerseText | None = None
@@ -381,10 +387,7 @@ def _verses(xml: str) -> list[_VerseText]:
             urn = ""
 
     if urn:
-        data = xml[position:]
-        if data:
-            runs.append(_Run(source=position, offset=length, text=data))
-        close()
+        raise ValueError(f"{urn}: the document ends inside tei:text")
 
     return verses
 
